@@ -1,7 +1,19 @@
 "use client";
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
-import { LayoutDashboard, ChartBar, Gauge, ShoppingBag, GraduationCap, Forklift, Search } from "lucide-react";
+import { 
+  LayoutDashboard, 
+  Users, 
+  Leaf, 
+  ClipboardList, 
+  TrendingUp,
+  Search,
+  MapPin,
+  DollarSign,
+  Calendar,
+  Factory
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,22 +25,178 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { supabase } from "@/lib/supabase";
 
-const searchItems = [
-  { group: "Dashboards", icon: LayoutDashboard, label: "Default" },
-  { group: "Dashboards", icon: ChartBar, label: "CRM", disabled: true },
-  { group: "Dashboards", icon: Gauge, label: "Analytics", disabled: true },
-  { group: "Dashboards", icon: ShoppingBag, label: "E-Commerce", disabled: true },
-  { group: "Dashboards", icon: GraduationCap, label: "Academy", disabled: true },
-  { group: "Dashboards", icon: Forklift, label: "Logistics", disabled: true },
-  { group: "Authentication", label: "Login v1" },
-  { group: "Authentication", label: "Login v2" },
-  { group: "Authentication", label: "Register v1" },
-  { group: "Authentication", label: "Register v2" },
+interface SearchItem {
+  group: string;
+  icon?: React.ElementType;
+  label: string;
+  disabled?: boolean;
+  href?: string;
+  description?: string;
+}
+
+const staticItems: SearchItem[] = [
+  { 
+    group: "Dashboards", 
+    icon: LayoutDashboard, 
+    label: "Estate Overview", 
+    href: "/dashboard",
+    description: "Main dashboard with estate metrics" 
+  },
+  { 
+    group: "Dashboards", 
+    icon: TrendingUp, 
+    label: "Task Management", 
+    href: "/dashboard/default",
+    description: "Manage daily estate operations" 
+  },
+  { 
+    group: "Management", 
+    icon: Users, 
+    label: "Workers", 
+    href: "/dashboard/workers",
+    description: "Manage estate workers and staff" 
+  },
+  { 
+    group: "Management", 
+    icon: MapPin, 
+    label: "Plantations", 
+    href: "/dashboard/plantations",
+    description: "Manage plantation areas" 
+  },
+  { 
+    group: "Operations", 
+    icon: Leaf, 
+    label: "Daily Plucking", 
+    href: "/dashboard/daily-plucking",
+    description: "Record daily harvest data" 
+  },
+  { 
+    group: "Operations", 
+    icon: Factory, 
+    label: "Tea Sales", 
+    href: "/dashboard/tea-sales",
+    description: "Track factory deliveries and sales" 
+  },
+  { 
+    group: "Analytics", 
+    icon: TrendingUp, 
+    label: "Tea Analytics", 
+    href: "/dashboard/tea",
+    description: "Harvest trends and analytics" 
+  },
+  { 
+    group: "Finance", 
+    icon: DollarSign, 
+    label: "Finance", 
+    href: "/dashboard/finance",
+    description: "Financial reports and tracking" 
+  },
 ];
 
 export function SearchDialog() {
   const [open, setOpen] = React.useState(false);
+  const [searchItems, setSearchItems] = React.useState<SearchItem[]>(staticItems);
+  const [loading, setLoading] = React.useState(false);
+  const router = useRouter();
+
+  // Fetch dynamic data when search opens
+  React.useEffect(() => {
+    if (open && !loading) {
+      fetchDynamicData();
+    }
+  }, [open]);
+
+  async function fetchDynamicData() {
+    setLoading(true);
+    try {
+      const dynamicItems: SearchItem[] = [...staticItems];
+
+      // Fetch workers
+      const { data: workers } = await supabase
+        .from('workers')
+        .select('id, name, position')
+        .limit(10);
+
+      if (workers) {
+        workers.forEach(worker => {
+          dynamicItems.push({
+            group: "Workers",
+            icon: Users,
+            label: worker.name,
+            description: worker.position,
+            href: `/dashboard/workers?id=${worker.id}`
+          });
+        });
+      }
+
+      // Fetch plantations
+      const { data: plantations } = await supabase
+        .from('plantations')
+        .select('id, name, size')
+        .limit(10);
+
+      if (plantations) {
+        plantations.forEach(plantation => {
+          dynamicItems.push({
+            group: "Plantations",
+            icon: MapPin,
+            label: plantation.name,
+            description: `${plantation.size} hectares`,
+            href: `/dashboard/plantations?id=${plantation.id}`
+          });
+        });
+      }
+
+      // Fetch recent tasks
+      const { data: tasks } = await supabase
+        .from('estate_tasks')
+        .select('id, header, type, status')
+        .order('created_at', { ascending: false })
+        .limit(8);
+
+      if (tasks) {
+        tasks.forEach(task => {
+          dynamicItems.push({
+            group: "Recent Tasks",
+            icon: ClipboardList,
+            label: task.header,
+            description: `${task.type} - ${task.status}`,
+            href: `/dashboard/default#task-${task.id}`
+          });
+        });
+      }
+
+      // Fetch recent plucking records
+      const { data: pluckingRecords } = await supabase
+        .from('daily_plucking')
+        .select('id, date, kg_plucked, workers(name)')
+        .order('date', { ascending: false })
+        .limit(5);
+
+      if (pluckingRecords) {
+        pluckingRecords.forEach(record => {
+          dynamicItems.push({
+            group: "Recent Plucking",
+            icon: Leaf,
+            label: `${record.kg_plucked}kg on ${new Date(record.date).toLocaleDateString()}`,
+            description: `Worker: ${record.workers?.name || 'Unknown'}`,
+            href: `/dashboard/daily-plucking?date=${record.date}`
+          });
+        });
+      }
+
+      setSearchItems(dynamicItems);
+    } catch (error) {
+      console.error('Error fetching search data:', error);
+      // Keep static items if dynamic fetch fails
+      setSearchItems(staticItems);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "j" && (e.metaKey || e.ctrlKey)) {
@@ -39,6 +207,13 @@ export function SearchDialog() {
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
+
+  const handleSelect = (item: SearchItem) => {
+    setOpen(false);
+    if (item.href) {
+      router.push(item.href);
+    }
+  };
 
   return (
     <>
@@ -54,19 +229,31 @@ export function SearchDialog() {
         </kbd>
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Search dashboards, users, and more…" />
+        <CommandInput placeholder="Search workers, plantations, tasks, and more…" />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
+          <CommandEmpty>
+            {loading ? "Loading estate data..." : "No results found."}
+          </CommandEmpty>
           {[...new Set(searchItems.map((item) => item.group))].map((group, i) => (
             <React.Fragment key={group}>
               {i !== 0 && <CommandSeparator />}
               <CommandGroup heading={group} key={group}>
                 {searchItems
                   .filter((item) => item.group === group)
-                  .map((item) => (
-                    <CommandItem className="!py-1.5" key={item.label} onSelect={() => setOpen(false)}>
-                      {item.icon && <item.icon />}
-                      <span>{item.label}</span>
+                  .map((item, index) => (
+                    <CommandItem 
+                      className="!py-2" 
+                      key={`${item.label}-${index}`} 
+                      onSelect={() => handleSelect(item)}
+                      disabled={item.disabled}
+                    >
+                      {item.icon && <item.icon className="mr-2 h-4 w-4" />}
+                      <div className="flex flex-col">
+                        <span className="font-medium">{item.label}</span>
+                        {item.description && (
+                          <span className="text-xs text-muted-foreground">{item.description}</span>
+                        )}
+                      </div>
                     </CommandItem>
                   ))}
               </CommandGroup>
