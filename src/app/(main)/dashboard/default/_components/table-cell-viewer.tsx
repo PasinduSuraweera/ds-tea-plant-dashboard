@@ -117,20 +117,20 @@ export function TableCellViewer({ item }: { item: z.infer<typeof sectionSchema> 
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
-                <Label htmlFor="type">Type</Label>
+                <Label htmlFor="type">Task Type</Label>
                 <Select defaultValue={item.type}>
                   <SelectTrigger id="type" className="w-full">
-                    <SelectValue placeholder="Select a type" />
+                    <SelectValue placeholder="Select a task type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Table of Contents">Table of Contents</SelectItem>
-                    <SelectItem value="Executive Summary">Executive Summary</SelectItem>
-                    <SelectItem value="Technical Approach">Technical Approach</SelectItem>
-                    <SelectItem value="Design">Design</SelectItem>
-                    <SelectItem value="Capabilities">Capabilities</SelectItem>
-                    <SelectItem value="Focus Documents">Focus Documents</SelectItem>
-                    <SelectItem value="Narrative">Narrative</SelectItem>
-                    <SelectItem value="Cover Page">Cover Page</SelectItem>
+                    <SelectItem value="Daily Task">Daily Task</SelectItem>
+                    <SelectItem value="Data Entry">Data Entry</SelectItem>
+                    <SelectItem value="Quality Control">Quality Control</SelectItem>
+                    <SelectItem value="Logistics">Logistics</SelectItem>
+                    <SelectItem value="Maintenance">Maintenance</SelectItem>
+                    <SelectItem value="Finance">Finance</SelectItem>
+                    <SelectItem value="Plantation Care">Plantation Care</SelectItem>
+                    <SelectItem value="Reporting">Reporting</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -142,8 +142,9 @@ export function TableCellViewer({ item }: { item: z.infer<typeof sectionSchema> 
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Done">Done</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="Not Started">Not Started</SelectItem>
+                    <SelectItem value="In Process">In Process</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Scheduled">Scheduled</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -1,17 +1,17 @@
 export const users = [
   {
     id: "1",
-    name: "Arham Khan",
-    username: "Aarhamkhnz",
-    email: "hello@arhamkhnz.com",
+    name: "Samaraweera Tea",
+    username: "Samaraweera",
+    email: "hello@samaraweera.com",
     avatar: "/avatars/arhamkhnz.png",
     role: "administrator",
   },
   {
     id: "2",
-    name: "Ammar Khan",
-    username: "ammarkhnz",
-    email: "hello@ammarkhnz.com",
+    name: "PS",
+    username: "PS",
+    email: "hello@PS.com",
     avatar: "",
     role: "admin",
   },

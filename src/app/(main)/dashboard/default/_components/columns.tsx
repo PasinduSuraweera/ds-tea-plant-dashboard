@@ -48,7 +48,7 @@ export const dashboardColumns: ColumnDef<z.infer<typeof sectionSchema>>[] = [
   },
   {
     accessorKey: "header",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Header" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Task" />,
     cell: ({ row }) => {
       return <TableCellViewer item={row.original} />;
     },
@@ -56,7 +56,7 @@ export const dashboardColumns: ColumnDef<z.infer<typeof sectionSchema>>[] = [
   },
   {
     accessorKey: "type",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Section Type" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Task Type" />,
     cell: ({ row }) => (
       <div className="w-32">
         <Badge variant="outline" className="text-muted-foreground px-1.5">
@@ -69,21 +69,26 @@ export const dashboardColumns: ColumnDef<z.infer<typeof sectionSchema>>[] = [
   {
     accessorKey: "status",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-    cell: ({ row }) => (
-      <Badge variant="outline" className="text-muted-foreground px-1.5">
-        {row.original.status === "Done" ? (
-          <CircleCheck className="stroke-border fill-green-500 dark:fill-green-400" />
-        ) : (
-          <Loader />
-        )}
-        {row.original.status}
-      </Badge>
-    ),
+    cell: ({ row }) => {
+      const status = row.original.status
+      return (
+        <Badge variant="outline" className="text-muted-foreground px-1.5">
+          {status === "Done" ? (
+            <CircleCheck className="stroke-border fill-green-500 dark:fill-green-400 mr-1" />
+          ) : status === "In Process" ? (
+            <Loader className="mr-1 h-3 w-3" />
+          ) : (
+            <div className="w-2 h-2 rounded-full bg-orange-500 mr-1" />
+          )}
+          {status}
+        </Badge>
+      )
+    },
     enableSorting: false,
   },
   {
     accessorKey: "target",
-    header: ({ column }) => <DataTableColumnHeader className="w-full text-right" column={column} title="Target" />,
+    header: ({ column }) => <DataTableColumnHeader className="w-full text-right" column={column} title="Target Time" />,
     cell: ({ row }) => (
       <form
         onSubmit={(e) => {

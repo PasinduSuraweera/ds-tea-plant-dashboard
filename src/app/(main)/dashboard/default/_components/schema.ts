@@ -9,3 +9,5 @@ export const sectionSchema = z.object({
   limit: z.string(),
   reviewer: z.string(),
 });
+
+export type TaskSection = z.infer<typeof sectionSchema>;

@@ -29,7 +29,7 @@ export function formatCurrency(
     noDecimals?: boolean;
   },
 ) {
-  const { currency = "USD", locale = "en-US", minimumFractionDigits, maximumFractionDigits, noDecimals } = opts ?? {};
+  const { currency = "LKR", locale = "en-LK", minimumFractionDigits = 2, maximumFractionDigits = 2, noDecimals } = opts ?? {};
 
   const formatOptions: Intl.NumberFormatOptions = {
     style: "currency",
@@ -38,5 +38,7 @@ export function formatCurrency(
     maximumFractionDigits: noDecimals ? 0 : maximumFractionDigits,
   };
 
-  return new Intl.NumberFormat(locale, formatOptions).format(amount);
+  // Format with LKR and replace with Sri Lankan Rupee symbol
+  const formatted = new Intl.NumberFormat(locale, formatOptions).format(amount);
+  return formatted.replace('LKR', 'රු').replace('Rs.', 'රු');
 }
