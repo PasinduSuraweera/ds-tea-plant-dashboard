@@ -171,17 +171,21 @@ export function SearchDialog() {
       // Fetch recent plucking records
       const { data: pluckingRecords } = await supabase
         .from('daily_plucking')
-        .select('id, date, kg_plucked, workers(name)')
+        .select('id, date, kg_plucked, workers!inner(name)')
         .order('date', { ascending: false })
         .limit(5);
 
       if (pluckingRecords) {
         pluckingRecords.forEach(record => {
+          const workerName = record.workers && Array.isArray(record.workers) 
+            ? record.workers[0]?.name 
+            : (record.workers as any)?.name;
+          
           dynamicItems.push({
             group: "Recent Plucking",
             icon: Leaf,
             label: `${record.kg_plucked}kg on ${new Date(record.date).toLocaleDateString()}`,
-            description: `Worker: ${record.workers?.name || 'Unknown'}`,
+            description: `Worker: ${workerName || 'Unknown'}`,
             href: `/dashboard/daily-plucking?date=${record.date}`
           });
         });
