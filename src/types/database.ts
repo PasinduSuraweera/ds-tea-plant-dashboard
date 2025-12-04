@@ -6,10 +6,8 @@ export interface Plantation {
   area_hectares: number
   tea_variety: string
   established_date: string | null
-  altitude_meters: number | null
-  soil_type: string | null
   manager_id: string | null
-  status: 'active' | 'inactive' | 'maintenance'
+  image_url: string | null
   created_at: string
   updated_at: string
 }

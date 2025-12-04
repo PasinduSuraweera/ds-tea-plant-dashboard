@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase'
+import { createAdminClient } from '@/lib/supabase'
 
 export async function POST() {
   try {
-    const supabase = createServerClient()
+    const supabase = createAdminClient()
     
     // Try to query the estate_tasks table to see if it exists
     const { data: existingTasks, error: checkError } = await supabase

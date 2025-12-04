@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, Edit, MapPin, Calendar, Mountain, Leaf } from "lucide-react"
+import { X, Edit, MapPin, Calendar, Leaf, ImageIcon } from "lucide-react"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
-import { Plantation, Worker, HarvestRecordWithWorker } from "@/types/database"
-import { formatCurrency } from "@/lib/utils"
+import { Plantation } from "@/types/database"
 
 interface PlantationDetailsProps {
   plantation: Plantation
@@ -17,13 +15,10 @@ interface PlantationDetailsProps {
 }
 
 export function PlantationDetails({ plantation, onClose, onEdit }: PlantationDetailsProps) {
-  const [workers, setWorkers] = useState<Worker[]>([])
-  const [recentHarvests, setRecentHarvests] = useState<HarvestRecordWithWorker[]>([])
   const [stats, setStats] = useState({
     totalWorkers: 0,
     monthlyHarvest: 0,
     avgDailyOutput: 0,
-    lastHarvestDate: null as string | null,
   })
 
   useEffect(() => {
@@ -32,20 +27,12 @@ export function PlantationDetails({ plantation, onClose, onEdit }: PlantationDet
 
   const fetchPlantationData = async () => {
     try {
-      // Fetch workers
+      // Fetch workers count
       const { data: workersData } = await supabase
         .from('workers')
-        .select('*')
+        .select('id')
         .eq('plantation_id', plantation.id)
         .eq('status', 'active')
-
-      // Fetch recent harvests
-      const { data: harvestsData } = await supabase
-        .from('harvest_records')
-        .select('*, worker:workers(first_name, last_name)')
-        .eq('plantation_id', plantation.id)
-        .order('harvest_date', { ascending: false })
-        .limit(10)
 
       // Calculate stats
       const currentMonth = new Date()
@@ -58,16 +45,12 @@ export function PlantationDetails({ plantation, onClose, onEdit }: PlantationDet
         .gte('harvest_date', firstDayOfMonth.toISOString().split('T')[0])
 
       const totalMonthlyHarvest = monthlyHarvestData?.reduce((sum, record) => sum + record.quantity_kg, 0) || 0
-      const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()
       const currentDay = currentMonth.getDate()
 
-      setWorkers(workersData || [])
-      setRecentHarvests(harvestsData || [])
       setStats({
         totalWorkers: workersData?.length || 0,
         monthlyHarvest: totalMonthlyHarvest,
         avgDailyOutput: totalMonthlyHarvest / currentDay,
-        lastHarvestDate: harvestsData?.[0]?.harvest_date || null,
       })
     } catch (error) {
       console.error('Error fetching plantation data:', error)
@@ -75,209 +58,105 @@ export function PlantationDetails({ plantation, onClose, onEdit }: PlantationDet
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <CardTitle className="text-2xl">{plantation.name}</CardTitle>
-                <Badge variant={plantation.status === 'active' ? 'default' : 'secondary'}>
-                  {plantation.status}
-                </Badge>
-              </div>
-              <CardDescription className="flex items-center gap-2 mt-2">
-                <MapPin className="h-4 w-4" />
-                {plantation.location}
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <Card className="w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-xl">
+        <CardHeader className="p-4 sm:p-6 border-b shrink-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <CardTitle className="text-lg sm:text-2xl line-clamp-1">{plantation.name}</CardTitle>
+              <CardDescription className="flex items-center gap-1.5 mt-1 sm:mt-2 text-xs sm:text-sm">
+                <MapPin className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                <span className="truncate">{plantation.location}</span>
               </CardDescription>
             </div>
-            <div className="flex gap-2">
-              <Button variant="default" onClick={onEdit}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
+            <div className="flex gap-1.5 sm:gap-2 shrink-0">
+              <Button variant="default" size="sm" onClick={onEdit} className="h-8 sm:h-9">
+                <Edit className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Edit</span>
               </Button>
-              <Button variant="ghost" size="sm" onClick={onClose}>
+              <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 sm:h-9 sm:w-9">
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="workers">Workers</TabsTrigger>
-              <TabsTrigger value="harvest">Harvest</TabsTrigger>
-              <TabsTrigger value="details">Details</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="overview" className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold">{stats.totalWorkers}</div>
-                    <p className="text-sm text-muted-foreground">Active Workers</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold">{stats.monthlyHarvest.toFixed(0)} kg</div>
-                    <p className="text-sm text-muted-foreground">Monthly Harvest</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold">{stats.avgDailyOutput.toFixed(1)} kg</div>
-                    <p className="text-sm text-muted-foreground">Avg Daily Output</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-2xl font-bold">{plantation.area_hectares}</div>
-                    <p className="text-sm text-muted-foreground">Hectares</p>
-                  </CardContent>
-                </Card>
+        <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto flex-1">
+          {/* Plantation Image */}
+          <div className="relative aspect-[16/9] w-full rounded-lg sm:rounded-xl overflow-hidden bg-muted shadow-sm">
+            {plantation.image_url ? (
+              <Image
+                src={plantation.image_url}
+                alt={plantation.name}
+                fill
+                sizes="(max-width: 640px) 100vw, 672px"
+                className="object-cover"
+                quality={90}
+                priority
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground bg-gradient-to-br from-muted to-muted/50">
+                <ImageIcon className="h-12 w-12 sm:h-16 sm:w-16 mb-2 opacity-30" />
+                <span className="text-xs sm:text-sm">No image uploaded</span>
               </div>
+            )}
+          </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Plantation Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="flex items-center gap-3">
-                      <Leaf className="h-5 w-5 text-green-600" />
-                      <div>
-                        <p className="font-medium">Tea Variety</p>
-                        <p className="text-sm text-muted-foreground">{plantation.tea_variety}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Mountain className="h-5 w-5 text-blue-600" />
-                      <div>
-                        <p className="font-medium">Altitude</p>
-                        <p className="text-sm text-muted-foreground">{plantation.altitude_meters}m above sea level</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Calendar className="h-5 w-5 text-orange-600" />
-                      <div>
-                        <p className="font-medium">Established</p>
-                        <p className="text-sm text-muted-foreground">
-                          {plantation.established_date ? new Date(plantation.established_date).toLocaleDateString() : 'Not specified'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="h-5 w-5 bg-amber-600 rounded-sm" />
-                      <div>
-                        <p className="font-medium">Soil Type</p>
-                        <p className="text-sm text-muted-foreground">{plantation.soil_type || 'Not specified'}</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+          {/* Stats Cards */}
+          <div className="grid gap-2 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="text-xl sm:text-2xl font-bold">{stats.totalWorkers}</div>
+                <p className="text-xs sm:text-sm text-muted-foreground">Active Workers</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="text-xl sm:text-2xl font-bold">{stats.monthlyHarvest.toFixed(0)}<span className="text-sm sm:text-base font-normal"> kg</span></div>
+                <p className="text-xs sm:text-sm text-muted-foreground">Monthly Harvest</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="text-xl sm:text-2xl font-bold">{stats.avgDailyOutput.toFixed(1)}<span className="text-sm sm:text-base font-normal"> kg</span></div>
+                <p className="text-xs sm:text-sm text-muted-foreground">Avg Daily Output</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="text-xl sm:text-2xl font-bold">{plantation.area_hectares}</div>
+                <p className="text-xs sm:text-sm text-muted-foreground">Hectares</p>
+              </CardContent>
+            </Card>
+          </div>
 
-            <TabsContent value="workers" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Active Workers ({stats.totalWorkers})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {workers.map((worker) => (
-                      <div key={worker.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <p className="font-medium">{worker.first_name} {worker.last_name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {worker.role} • {worker.employee_id}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">
-                            {worker.salary ? formatCurrency(worker.salary) : 'Salary not set'}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {worker.hire_date ? `Since ${new Date(worker.hire_date).getFullYear()}` : ''}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                    {workers.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">No workers assigned to this plantation</p>
-                    )}
+          {/* Plantation Information */}
+          <Card>
+            <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-2">
+              <CardTitle className="text-base sm:text-lg">Plantation Information</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Leaf className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm sm:text-base">Tea Variety</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground truncate">{plantation.tea_variety}</p>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="harvest" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Harvest Records</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {recentHarvests.map((harvest) => (
-                      <div key={harvest.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <p className="font-medium">{new Date(harvest.harvest_date).toLocaleDateString()}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {harvest.worker?.first_name} {harvest.worker?.last_name}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">{harvest.quantity_kg} kg</p>
-                          <Badge variant={harvest.grade === 'A' ? 'default' : harvest.grade === 'B' ? 'secondary' : 'destructive'}>
-                            Grade {harvest.grade}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                    {recentHarvests.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">No harvest records found</p>
-                    )}
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 shrink-0" />
+                  <div>
+                    <p className="font-medium text-sm sm:text-base">Established</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">
+                      {plantation.established_date ? new Date(plantation.established_date).toLocaleDateString() : 'Not specified'}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="details" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Technical Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Plantation ID</Label>
-                      <p className="font-mono text-sm">{plantation.id}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Manager ID</Label>
-                      <p className="font-mono text-sm">{plantation.manager_id || 'Not assigned'}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Created</Label>
-                      <p className="text-sm">{new Date(plantation.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Last Updated</Label>
-                      <p className="text-sm">{new Date(plantation.updated_at).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </CardContent>
       </Card>
     </div>
   )
-}
-
-function Label({ className, ...props }: React.HTMLAttributes<HTMLLabelElement>) {
-  return <label className={className} {...props} />
 }
