@@ -106,7 +106,7 @@ export function PlantationsManager() {
         </div>
         {/* Search and Filter */}
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
-          <div className="relative flex-1">
+          <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search plantations..."
@@ -125,57 +125,59 @@ export function PlantationsManager() {
       
 
       {/* Plantations Grid */}
-      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredPlantations.map((plantation) => (
-          <Card key={plantation.id} className="cursor-pointer hover:shadow-lg transition-all duration-200 overflow-hidden group">
+          <Card key={plantation.id} className="cursor-pointer hover:shadow-md transition-shadow overflow-hidden">
             {/* Plantation Image */}
-            <div className="relative aspect-[16/10] w-full bg-muted overflow-hidden">
+            <div className="relative aspect-[16/9] w-full bg-muted overflow-hidden">
               {plantation.image_url ? (
                 <Image
                   src={plantation.image_url}
                   alt={plantation.name}
                   fill
-                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                  quality={85}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  className="object-cover"
+                  quality={80}
                   priority={false}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full bg-gradient-to-br from-muted to-muted/50">
-                  <ImageIcon className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground/30" />
+                  <ImageIcon className="h-8 w-8 text-muted-foreground/30" />
                 </div>
               )}
             </div>
-            <CardHeader className="p-3 sm:pt-4 sm:px-6 pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base sm:text-lg line-clamp-1">{plantation.name}</CardTitle>
-              </div>
-              <CardDescription className="text-xs sm:text-sm line-clamp-1">{plantation.location}</CardDescription>
+            <CardHeader className="p-3 pb-1">
+              <CardTitle className="text-sm font-medium line-clamp-1">{plantation.name}</CardTitle>
+              <CardDescription className="text-xs line-clamp-1">{plantation.location}</CardDescription>
             </CardHeader>
-            <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
-              <div className="space-y-1 sm:space-y-2">
-                <div className="flex justify-between text-xs sm:text-sm">
+            <CardContent className="p-3 pt-0">
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Area:</span>
                   <span>{plantation.area_hectares} ha</span>
                 </div>
-                <div className="flex justify-between text-xs sm:text-sm">
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Variety:</span>
                   <span className="truncate ml-2">{plantation.tea_variety}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Est:</span>
+                  <span>{plantation.established_date ? new Date(plantation.established_date).getFullYear() : '-'}</span>
+                </div>
               </div>
-              <div className="flex gap-1.5 sm:gap-2 mt-3 sm:mt-4">
+              <div className="flex gap-1.5 mt-3">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 text-xs sm:text-sm h-8 sm:h-9"
+                  className="flex-1 h-7 text-xs"
                   onClick={() => handleViewPlantation(plantation)}
                 >
-                  <span className="hidden xs:inline">View </span>Details
+                  View
                 </Button>
                 <Button
                   variant="default"
                   size="sm"
-                  className="flex-1 text-xs sm:text-sm h-8 sm:h-9"
+                  className="flex-1 h-7 text-xs"
                   onClick={() => handleEditPlantation(plantation)}
                 >
                   Edit
@@ -183,11 +185,10 @@ export function PlantationsManager() {
                 <Button
                   variant="destructive"
                   size="sm"
-                  className="text-xs sm:text-sm h-8 sm:h-9 px-2 sm:px-3"
+                  className="h-7 text-xs px-2"
                   onClick={() => handleDeletePlantation(plantation)}
                 >
-                  <X className="h-4 w-4 sm:hidden" />
-                  <span className="hidden sm:inline">Delete</span>
+                  <X className="h-3 w-3" />
                 </Button>
               </div>
             </CardContent>

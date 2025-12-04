@@ -142,35 +142,35 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <Card className="w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-xl">
-        <CardHeader className="p-4 sm:p-6 border-b shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <CardTitle className="text-base sm:text-lg">{plantation ? 'Edit Plantation' : 'Create New Plantation'}</CardTitle>
-              <CardDescription className="text-xs sm:text-sm hidden sm:block">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>{plantation ? 'Edit Plantation' : 'Add New Plantation'}</CardTitle>
+              <CardDescription>
                 {plantation ? 'Update plantation details' : 'Add a new tea plantation to your management system'}
               </CardDescription>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
+            <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-4 sm:p-6 overflow-y-auto flex-1">
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
+        <CardContent>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             {/* Image Upload Section */}
             <div className="space-y-2">
-              <Label className="text-sm">Plantation Image</Label>
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3 sm:gap-4">
-                <div className="relative aspect-[16/10] w-full sm:w-56 bg-muted rounded-xl overflow-hidden border-2 border-dashed border-muted-foreground/25 shadow-sm">
+              <Label>Plantation Image</Label>
+              <div className="flex items-start gap-4">
+                <div className="relative h-32 w-48 bg-muted rounded-lg overflow-hidden border-2 border-dashed border-muted-foreground/25">
                   {imagePreview ? (
                     <>
                       <Image
                         src={imagePreview}
                         alt="Plantation preview"
                         fill
-                        sizes="(max-width: 640px) 100vw, 224px"
+                        sizes="192px"
                         className="object-cover"
                         quality={85}
                       />
@@ -178,20 +178,20 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
                         type="button"
                         variant="destructive"
                         size="icon"
-                        className="absolute top-2 right-2 h-8 w-8 shadow-md"
+                        className="absolute top-1 right-1 h-6 w-6"
                         onClick={removeImage}
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-3 w-3" />
                       </Button>
                     </>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 sm:py-0">
-                      <ImageIcon className="h-10 w-10 sm:h-8 sm:w-8 mb-2 sm:mb-1" />
-                      <span className="text-sm sm:text-xs">No image</span>
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                      <ImageIcon className="h-8 w-8 mb-1" />
+                      <span className="text-xs">No image</span>
                     </div>
                   )}
                 </div>
-                <div className="flex flex-col gap-2 w-full sm:w-auto">
+                <div className="flex flex-col gap-2">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -202,8 +202,7 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
                   <Button
                     type="button"
                     variant="outline"
-                    size="default"
-                    className="w-full sm:w-auto"
+                    size="sm"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
                   >
@@ -214,84 +213,79 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
                     )}
                     {uploading ? 'Uploading...' : 'Upload Image'}
                   </Button>
-                  <p className="text-xs text-muted-foreground text-center sm:text-left">
+                  <p className="text-xs text-muted-foreground">
                     Max: 5MB (JPG, PNG, WebP)
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:space-y-2">
-                <Label htmlFor="name" className="text-sm">Plantation Name *</Label>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">Plantation Name *</Label>
                 <Input
                   id="name"
                   {...register("name")}
                   placeholder="Highland Tea Estate"
-                  className="h-10"
                 />
                 {errors.name && (
-                  <p className="text-xs sm:text-sm text-destructive">{errors.name.message}</p>
+                  <p className="text-sm text-destructive">{errors.name.message}</p>
                 )}
               </div>
 
-              <div className="space-y-1.5 sm:space-y-2">
-                <Label htmlFor="location" className="text-sm">Location *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="location">Location *</Label>
                 <Input
                   id="location"
                   {...register("location")}
                   placeholder="Nuwara Eliya, Sri Lanka"
-                  className="h-10"
                 />
                 {errors.location && (
-                  <p className="text-xs sm:text-sm text-destructive">{errors.location.message}</p>
+                  <p className="text-sm text-destructive">{errors.location.message}</p>
                 )}
               </div>
 
-              <div className="space-y-1.5 sm:space-y-2">
-                <Label htmlFor="area_hectares" className="text-sm">Area (Hectares) *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="area_hectares">Area (Hectares) *</Label>
                 <Input
                   id="area_hectares"
                   type="number"
                   step="0.1"
                   {...register("area_hectares", { valueAsNumber: true })}
                   placeholder="120.5"
-                  className="h-10"
                 />
                 {errors.area_hectares && (
-                  <p className="text-xs sm:text-sm text-destructive">{errors.area_hectares.message}</p>
+                  <p className="text-sm text-destructive">{errors.area_hectares.message}</p>
                 )}
               </div>
 
-              <div className="space-y-1.5 sm:space-y-2">
-                <Label htmlFor="tea_variety" className="text-sm">Tea Variety *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="tea_variety">Tea Variety *</Label>
                 <Input
                   id="tea_variety"
                   {...register("tea_variety")}
                   placeholder="Ceylon Black Tea"
-                  className="h-10"
                 />
                 {errors.tea_variety && (
-                  <p className="text-xs sm:text-sm text-destructive">{errors.tea_variety.message}</p>
+                  <p className="text-sm text-destructive">{errors.tea_variety.message}</p>
                 )}
               </div>
 
-              <div className="space-y-1.5 sm:space-y-2 sm:col-span-2">
-                <Label htmlFor="established_date" className="text-sm">Established Date</Label>
+              <div className="space-y-2">
+                <Label htmlFor="established_date">Established Date</Label>
                 <Input
                   id="established_date"
                   type="date"
                   {...register("established_date")}
-                  className="h-10"
                 />
               </div>
             </div>
 
-            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-2">
-              <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading} className="w-full sm:w-auto">
+              <Button type="submit" disabled={loading}>
                 {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 <Save className="h-4 w-4 mr-2" />
                 {plantation ? 'Update' : 'Create'} Plantation
