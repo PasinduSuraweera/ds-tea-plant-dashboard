@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { Search, Users, TrendingUp, CalendarDays, Download, Printer, Banknote, Leaf, MinusCircle, Gift, ChevronLeft, ChevronRight, Loader2, Edit, Check, X } from "lucide-react"
+import { Search, Users, TrendingUp, CalendarDays, Download, Printer, Banknote, Leaf, MinusCircle, Gift, ChevronLeft, ChevronRight, Loader2, Edit, Check, X, CheckCircle, Circle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,6 +33,8 @@ interface WorkerSalary {
   net_salary: number
   days_worked: number
   avg_kg_per_day: number
+  is_paid: boolean
+  payment_id: string | null
 }
 
 export function SalaryManager() {
@@ -43,6 +45,7 @@ export function SalaryManager() {
   const [editingBonusId, setEditingBonusId] = useState<string | null>(null)
   const [bonusValue, setBonusValue] = useState("")
   const [savingBonus, setSavingBonus] = useState(false)
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchSalaryData()
@@ -98,6 +101,20 @@ export function SalaryManager() {
         })
       }
 
+      // Fetch payment records for this month
+      const { data: payments, error: paymentError } = await supabase
+        .from('salary_payments')
+        .select('*')
+        .eq('month', monthStart)
+
+      // Create payment map (ignore error if table doesn't exist)
+      const paymentMap = new Map<string, string>()
+      if (!paymentError && payments) {
+        payments.forEach((p: any) => {
+          paymentMap.set(p.worker_id, p.id)
+        })
+      }
+
       // Process records to calculate salary per worker
       const workerMap = new Map<string, WorkerSalary>()
 
@@ -108,6 +125,7 @@ export function SalaryManager() {
         
         if (!workerMap.has(workerId)) {
           const bonusData = bonusMap.get(workerId)
+          const paymentId = paymentMap.get(workerId)
           workerMap.set(workerId, {
             worker_id: workerId,
             employee_id: worker.employee_id,
@@ -119,7 +137,9 @@ export function SalaryManager() {
             total_advance: 0,
             net_salary: 0,
             days_worked: 0,
-            avg_kg_per_day: 0
+            avg_kg_per_day: 0,
+            is_paid: !!paymentId,
+            payment_id: paymentId || null
           })
         }
 
@@ -226,6 +246,44 @@ export function SalaryManager() {
     }
   }, [bonusValue, selectedMonth])
 
+  const handleTogglePaid = useCallback(async (workerId: string, paymentId: string | null, isPaid: boolean) => {
+    setMarkingPaidId(workerId)
+    const monthStart = format(selectedMonth, 'yyyy-MM-dd')
+
+    try {
+      if (isPaid && paymentId) {
+        // Unmark as paid - delete the payment record
+        const { error } = await supabase
+          .from('salary_payments')
+          .delete()
+          .eq('id', paymentId)
+        if (error) throw error
+        toast.success("Marked as unpaid")
+      } else {
+        // Mark as paid - insert payment record
+        const { error } = await supabase
+          .from('salary_payments')
+          .insert({
+            worker_id: workerId,
+            month: monthStart,
+            paid_at: new Date().toISOString()
+          })
+        if (error) throw error
+        toast.success("Marked as paid")
+      }
+      fetchSalaryData()
+    } catch (error: any) {
+      console.error('Error toggling payment:', error)
+      if (error.message?.includes('salary_payments')) {
+        toast.error("Payment table not found. Please run the SQL setup.")
+      } else {
+        toast.error(error.message || "Failed to update payment status")
+      }
+    } finally {
+      setMarkingPaidId(null)
+    }
+  }, [selectedMonth])
+
   const filteredSalaries = useMemo(() =>
     salaries.filter(salary =>
       salary.worker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -235,11 +293,13 @@ export function SalaryManager() {
 
   const stats = useMemo(() => {
     const totalPaid = salaries.reduce((sum, s) => sum + s.net_salary, 0)
+    const actuallyPaid = salaries.filter(s => s.is_paid).reduce((sum, s) => sum + s.net_salary, 0)
     const totalKg = salaries.reduce((sum, s) => sum + s.total_kg, 0)
     const totalWorkers = salaries.length
+    const paidWorkers = salaries.filter(s => s.is_paid).length
     const totalBonus = salaries.reduce((sum, s) => sum + s.bonus, 0)
 
-    return { totalPaid, totalKg, totalWorkers, totalBonus }
+    return { totalPaid, actuallyPaid, totalKg, totalWorkers, paidWorkers, totalBonus }
   }, [salaries])
 
   // Export functions
@@ -538,7 +598,7 @@ export function SalaryManager() {
               </TooltipTrigger>
               <TooltipContent>
                 <div className="text-xs space-y-1">
-                  <p>Paid: {formatCurrency(salary.total_earned)}</p>
+                  <p>Earned: {formatCurrency(salary.total_earned)}</p>
                   <p>+ Bonus: {formatCurrency(salary.bonus)}</p>
                   <p>- Advances: {formatCurrency(salary.total_advance)}</p>
                   <hr className="border-border" />
@@ -550,7 +610,39 @@ export function SalaryManager() {
         )
       },
     },
-  ], [editingBonusId, bonusValue, savingBonus, handleEditBonus, handleCancelBonus, handleSaveBonus])
+    {
+      accessorKey: "is_paid",
+      header: "Status",
+      cell: ({ row }) => {
+        const salary = row.original
+        const isMarking = markingPaidId === salary.worker_id
+
+        return (
+          <Button
+            variant={salary.is_paid ? "default" : "outline"}
+            size="sm"
+            className={`h-7 text-xs ${salary.is_paid ? "bg-primary/90" : ""}`}
+            onClick={() => handleTogglePaid(salary.worker_id, salary.payment_id, salary.is_paid)}
+            disabled={isMarking}
+          >
+            {isMarking ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : salary.is_paid ? (
+              <>
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Paid
+              </>
+            ) : (
+              <>
+                <Circle className="h-3 w-3 mr-1" />
+                Mark Paid
+              </>
+            )}
+          </Button>
+        )
+      },
+    },
+  ], [editingBonusId, bonusValue, savingBonus, markingPaidId, handleEditBonus, handleCancelBonus, handleSaveBonus, handleTogglePaid])
 
   const table = useDataTableInstance({
     data: filteredSalaries,
@@ -666,9 +758,9 @@ export function SalaryManager() {
         <Card className="p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Total Paid</span>
-            <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
+            <CheckCircle className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
-          <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalPaid)}</div>
+          <div className="text-lg font-bold mt-1">{formatCurrency(stats.actuallyPaid)}</div>
         </Card>
       </div>
 
