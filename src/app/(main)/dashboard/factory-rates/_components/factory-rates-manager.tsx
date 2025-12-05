@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { Plus, Search, TrendingUp, TrendingDown, Factory, Edit, Trash2, X, Loader2, History, ArrowUpDown, CalendarDays, SortAsc, ArrowDownAZ } from "lucide-react"
+import { Plus, Search, TrendingUp, TrendingDown, Factory, Edit, Trash2, X, Loader2, History, CalendarDays, SortAsc, ArrowDownAZ } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,9 +10,10 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTablePagination } from "@/components/data-table/data-table-pagination"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+
 import { ColumnDef } from "@tanstack/react-table"
 import { useDataTableInstance } from "@/hooks/use-data-table-instance"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { supabase } from "@/lib/supabase"
 import { formatCurrency } from "@/lib/utils"
 import { format, differenceInDays } from "date-fns"
@@ -278,22 +279,6 @@ export function FactoryRatesManager() {
     return result
   }, [factories, searchTerm, sortBy])
 
-  const stats = useMemo(() => {
-    if (factories.length === 0) return { avg: 0, highest: null, lowest: null, count: 0, highestFactory: '', lowestFactory: '' }
-    
-    const sorted = [...factories].sort((a, b) => b.current_rate - a.current_rate)
-    const rates = factories.map(f => f.current_rate)
-    
-    return {
-      avg: rates.reduce((a, b) => a + b, 0) / rates.length,
-      highest: sorted[0]?.current_rate || 0,
-      lowest: sorted[sorted.length - 1]?.current_rate || 0,
-      count: factories.length,
-      highestFactory: sorted[0]?.factory_name || '',
-      lowestFactory: sorted[sorted.length - 1]?.factory_name || ''
-    }
-  }, [factories])
-
   // Calculate rate change for history entries
   const historyWithChanges = useMemo(() => {
     return rateHistory.map((entry, index) => {
@@ -512,63 +497,6 @@ export function FactoryRatesManager() {
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total Factories</span>
-            <Factory className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.count}</div>
-        </Card>
-
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Average Rate</span>
-            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{formatCurrency(stats.avg)}</div>
-        </Card>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-3 cursor-help">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Highest Rate</span>
-                  <TrendingUp className="h-3.5 w-3.5 text-green-500" />
-                </div>
-                <div className="text-lg font-bold mt-1">{stats.highest ? formatCurrency(stats.highest) : '-'}</div>
-              </Card>
-            </TooltipTrigger>
-            {stats.highestFactory && (
-              <TooltipContent>
-                <p>{stats.highestFactory}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="p-3 cursor-help">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Lowest Rate</span>
-                  <TrendingDown className="h-3.5 w-3.5 text-red-500" />
-                </div>
-                <div className="text-lg font-bold mt-1">{stats.lowest ? formatCurrency(stats.lowest) : '-'}</div>
-              </Card>
-            </TooltipTrigger>
-            {stats.lowestFactory && (
-              <TooltipContent>
-                <p>{stats.lowestFactory}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
       </div>
 
       {/* Factory Table */}

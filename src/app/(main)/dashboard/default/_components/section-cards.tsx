@@ -1,32 +1,43 @@
 "use client"
 
-import { TrendingUp, TrendingDown, Leaf, Users } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
-import { startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, subDays } from "date-fns";
+import { startOfMonth, endOfMonth, subMonths, subDays, format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+
+const SL_TIMEZONE = 'Asia/Colombo'
+
+function getSLDate() {
+  return formatInTimeZone(new Date(), SL_TIMEZONE, 'yyyy-MM-dd')
+}
 
 interface DashboardStats {
-  totalRevenue: number
+  // Revenue from tea sales
+  monthlyRevenue: number
   revenueChange: number
-  newWorkers: number
-  workerChange: number
-  activeAccounts: number
-  accountChange: number
+  // Expenses from salary payments
+  monthlyExpenses: number
+  expensesChange: number
+  // Profit = Revenue - Expenses
+  monthlyProfit: number
+  profitChange: number
+  // Today's harvest
   todaysHarvest: number
   harvestChange: number
 }
 
 export function SectionCards() {
   const [stats, setStats] = useState<DashboardStats>({
-    totalRevenue: 0,
+    monthlyRevenue: 0,
     revenueChange: 0,
-    newWorkers: 0,
-    workerChange: 0,
-    activeAccounts: 0,
-    accountChange: 0,
+    monthlyExpenses: 0,
+    expensesChange: 0,
+    monthlyProfit: 0,
+    profitChange: 0,
     todaysHarvest: 0,
     harvestChange: 0,
   })
@@ -36,104 +47,98 @@ export function SectionCards() {
     async function fetchStats() {
       try {
         const today = new Date()
-        const yesterday = subDays(today, 1)
+        const todayStr = getSLDate()
+        const yesterdayStr = format(subDays(today, 1), 'yyyy-MM-dd')
         const currentMonth = startOfMonth(today)
+        const currentMonthEnd = endOfMonth(today)
         const lastMonth = subMonths(currentMonth, 1)
+        const lastMonthEnd = endOfMonth(lastMonth)
 
-        // Get monthly revenue from daily_plucking
-        const { data: currentRevenue, error: revenueError } = await supabase
-          .from('daily_plucking')
+        // === REVENUE: From tea_sales ===
+        const { data: currentSales } = await supabase
+          .from('tea_sales')
           .select('total_income')
-          .gte('date', currentMonth.toISOString().split('T')[0])
-          .lte('date', endOfMonth(today).toISOString().split('T')[0])
+          .gte('date', format(currentMonth, 'yyyy-MM-dd'))
+          .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
 
-        const { data: lastRevenue, error: lastRevenueError } = await supabase
-          .from('daily_plucking')
+        const { data: lastSales } = await supabase
+          .from('tea_sales')
           .select('total_income')
-          .gte('date', lastMonth.toISOString().split('T')[0])
-          .lte('date', endOfMonth(lastMonth).toISOString().split('T')[0])
+          .gte('date', format(lastMonth, 'yyyy-MM-dd'))
+          .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
 
-        let totalRevenue = 0
-        let lastMonthRevenue = 0
-        
-        // Handle missing table gracefully
-        if (revenueError?.message?.includes('relation "daily_plucking" does not exist')) {
-          console.log('Daily plucking table not yet created - using sample revenue data')
-          totalRevenue = 125000 + Math.random() * 50000 // Sample LKR revenue
-          lastMonthRevenue = 100000 + Math.random() * 40000
-        } else if (currentRevenue && !revenueError) {
-          totalRevenue = currentRevenue.reduce((sum, item) => sum + (item.total_income || 0), 0)
-        }
-        
-        if (lastRevenue && !lastRevenueError) {
-          lastMonthRevenue = lastRevenue.reduce((sum, item) => sum + (item.total_income || 0), 0)
-        }
+        const monthlyRevenue = currentSales?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
+        const lastMonthRevenue = lastSales?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
+        const revenueChange = lastMonthRevenue > 0 
+          ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
+          : 0
 
-        const revenueChange = lastMonthRevenue > 0 ? ((totalRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : 0
-
-        // Get new workers this month
-        const { count: currentWorkers } = await supabase
-          .from('workers')
-          .select('*', { count: 'exact', head: true })
-          .gte('created_at', currentMonth.toISOString())
-
-        const { count: lastWorkers } = await supabase
-          .from('workers')
-          .select('*', { count: 'exact', head: true })
-          .gte('created_at', lastMonth.toISOString())
-          .lt('created_at', currentMonth.toISOString())
-
-        const workerChange = (lastWorkers || 0) > 0 ? (((currentWorkers || 0) - (lastWorkers || 0)) / (lastWorkers || 0)) * 100 : 0
-
-        // Get active accounts (workers with status active)
-        const { count: activeAccounts } = await supabase
-          .from('workers')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'active')
-
-        const { count: totalAccounts } = await supabase
-          .from('workers')
-          .select('*', { count: 'exact', head: true })
-
-        const accountChange = 5.2 // Static for demo
-
-        // Get today's harvest
-        const { data: todaysData, error: todaysError } = await supabase
+        // === EXPENSES: From daily_plucking (worker payments) ===
+        const { data: currentPayments } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked')
-          .eq('date', today.toISOString().split('T')[0])
+          .select('kg_plucked, rate_per_kg, is_advance')
+          .gte('date', format(currentMonth, 'yyyy-MM-dd'))
+          .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
+
+        const { data: lastPayments } = await supabase
+          .from('daily_plucking')
+          .select('kg_plucked, rate_per_kg, is_advance')
+          .gte('date', format(lastMonth, 'yyyy-MM-dd'))
+          .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
+
+        // Calculate expenses: plucking records = kg * rate, advances = kg (which stores amount)
+        const monthlyExpenses = currentPayments?.reduce((sum, p) => {
+          if (p.is_advance) {
+            return sum + Math.abs(p.kg_plucked || 0) // For advances, kg_plucked stores the amount
+          }
+          return sum + ((p.kg_plucked || 0) * (p.rate_per_kg || 0))
+        }, 0) || 0
+        const lastMonthExpenses = lastPayments?.reduce((sum, p) => {
+          if (p.is_advance) {
+            return sum + Math.abs(p.kg_plucked || 0)
+          }
+          return sum + ((p.kg_plucked || 0) * (p.rate_per_kg || 0))
+        }, 0) || 0
+        const expensesChange = lastMonthExpenses > 0 
+          ? ((monthlyExpenses - lastMonthExpenses) / lastMonthExpenses) * 100 
+          : 0
+
+        // === PROFIT: Revenue - Expenses ===
+        const monthlyProfit = monthlyRevenue - monthlyExpenses
+        const lastMonthProfit = lastMonthRevenue - lastMonthExpenses
+        const profitChange = lastMonthProfit !== 0 
+          ? ((monthlyProfit - lastMonthProfit) / Math.abs(lastMonthProfit)) * 100 
+          : 0
+
+        // === TODAY'S HARVEST ===
+        const { data: todaysData } = await supabase
+          .from('daily_plucking')
+          .select('kg_plucked, is_advance')
+          .eq('date', todayStr)
 
         const { data: yesterdaysData } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked')
-          .eq('date', yesterday.toISOString().split('T')[0])
+          .select('kg_plucked, is_advance')
+          .eq('date', yesterdayStr)
 
-        let todaysHarvest = 0
-        let yesterdaysHarvest = 0
-
-        // Handle missing table gracefully
-        if (todaysError?.message?.includes('relation "daily_plucking" does not exist')) {
-          todaysHarvest = 150 + Math.random() * 100 // Sample harvest data
-          yesterdaysHarvest = 120 + Math.random() * 80
-        } else {
-          if (todaysData) {
-            todaysHarvest = todaysData.reduce((sum, item) => sum + (item.kg_plucked || 0), 0)
-          }
-          
-          if (yesterdaysData) {
-            yesterdaysHarvest = yesterdaysData.reduce((sum, item) => sum + (item.kg_plucked || 0), 0)
-          }
-        }
-
-        const harvestChange = yesterdaysHarvest > 0 ? ((todaysHarvest - yesterdaysHarvest) / yesterdaysHarvest) * 100 : 0
+        // Only count plucking records (not advances)
+        const todaysHarvest = todaysData
+          ?.filter(d => !d.is_advance)
+          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0) || 0
+        const yesterdaysHarvest = yesterdaysData
+          ?.filter(d => !d.is_advance)
+          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0) || 0
+        const harvestChange = yesterdaysHarvest > 0 
+          ? ((todaysHarvest - yesterdaysHarvest) / yesterdaysHarvest) * 100 
+          : 0
 
         setStats({
-          totalRevenue,
+          monthlyRevenue,
           revenueChange,
-          newWorkers: currentWorkers || 0,
-          workerChange,
-          activeAccounts: activeAccounts || 0,
-          accountChange,
+          monthlyExpenses,
+          expensesChange,
+          monthlyProfit,
+          profitChange,
           todaysHarvest,
           harvestChange,
         })
@@ -153,8 +158,8 @@ export function SectionCards() {
         {[...Array(4)].map((_, i) => (
           <Card key={i} className="@container/card animate-pulse">
             <CardHeader>
-              <div className="h-4 bg-gray-300 rounded w-20"></div>
-              <div className="h-8 bg-gray-300 rounded w-24"></div>
+              <div className="h-4 bg-muted rounded w-20"></div>
+              <div className="h-8 bg-muted rounded w-24 mt-2"></div>
             </CardHeader>
           </Card>
         ))}
@@ -164,78 +169,89 @@ export function SectionCards() {
 
   return (
     <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
+      {/* Revenue Card */}
       <Card className="@container/card">
         <CardHeader>
           <CardDescription>Monthly Revenue</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            {formatCurrency(stats.totalRevenue)}
+          <CardTitle className="text-xl font-semibold tabular-nums @[250px]/card:text-2xl">
+            {formatCurrency(stats.monthlyRevenue)}
           </CardTitle>
           <CardAction>
-            <Badge variant="outline">
-              {stats.revenueChange >= 0 ? <TrendingUp /> : <TrendingDown />}
-              {stats.revenueChange >= 0 ? '+' : ''}{stats.revenueChange.toFixed(1)}%
+            <Badge variant="outline" className="text-xs px-1.5 whitespace-nowrap">
+              {stats.revenueChange >= 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+              {stats.revenueChange >= 0 ? '+' : ''}{stats.revenueChange.toFixed(0)}%
             </Badge>
           </CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            {stats.revenueChange >= 0 ? 'Trending up' : 'Down'} this month{' '}
-            {stats.revenueChange >= 0 ? <TrendingUp className="size-4" /> : <TrendingDown className="size-4" />}
+          <div className="line-clamp-1 font-medium">
+            From tea sales
           </div>
-          <div className="text-muted-foreground">Tea sales revenue in LKR</div>
+          <div className="text-muted-foreground">Compared to last month</div>
         </CardFooter>
       </Card>
+
+      {/* Expenses Card */}
       <Card className="@container/card">
         <CardHeader>
-          <CardDescription>New Workers</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">{stats.newWorkers}</CardTitle>
+          <CardDescription>Monthly Expenses</CardDescription>
+          <CardTitle className="text-xl font-semibold tabular-nums @[250px]/card:text-2xl">
+            {formatCurrency(stats.monthlyExpenses)}
+          </CardTitle>
           <CardAction>
-            <Badge variant="outline">
-              {stats.workerChange >= 0 ? <TrendingUp /> : <TrendingDown />}
-              {stats.workerChange >= 0 ? '+' : ''}{stats.workerChange.toFixed(1)}%
+            <Badge variant="outline" className="text-xs px-1.5 whitespace-nowrap">
+              {stats.expensesChange <= 0 ? <TrendingDown className="size-3" /> : <TrendingUp className="size-3" />}
+              {stats.expensesChange >= 0 ? '+' : ''}{stats.expensesChange.toFixed(0)}%
             </Badge>
           </CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            {stats.workerChange >= 0 ? 'Growing' : 'Declining'} workforce{' '}
-            <Users className="size-4" />
+          <div className="line-clamp-1 font-medium">
+            Worker payments
           </div>
-          <div className="text-muted-foreground">Hired this month</div>
+          <div className="text-muted-foreground">Salaries & advances</div>
         </CardFooter>
       </Card>
+
+      {/* Profit Card */}
       <Card className="@container/card">
         <CardHeader>
-          <CardDescription>Active Workers</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">{stats.activeAccounts}</CardTitle>
+          <CardDescription>Monthly Profit</CardDescription>
+          <CardTitle className="text-xl font-semibold tabular-nums @[250px]/card:text-2xl">
+            {formatCurrency(stats.monthlyProfit)}
+          </CardTitle>
           <CardAction>
-            <Badge variant="outline">
-              {stats.accountChange >= 0 ? <TrendingUp /> : <TrendingDown />}
-              {stats.accountChange >= 0 ? '+' : ''}{stats.accountChange.toFixed(1)}%
+            <Badge variant="outline" className="text-xs px-1.5 whitespace-nowrap">
+              {stats.profitChange >= 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+              {stats.profitChange >= 0 ? '+' : ''}{stats.profitChange.toFixed(0)}%
             </Badge>
           </CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            Currently active <Users className="size-4" />
+          <div className="line-clamp-1 font-medium">
+            Revenue - Expenses
           </div>
-          <div className="text-muted-foreground">Total workforce status</div>
+          <div className="text-muted-foreground">Net profit this month</div>
         </CardFooter>
       </Card>
+
+      {/* Today's Harvest Card */}
       <Card className="@container/card">
         <CardHeader>
           <CardDescription>Today's Harvest</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">{stats.todaysHarvest.toFixed(1)} kg</CardTitle>
+          <CardTitle className="text-xl font-semibold tabular-nums @[250px]/card:text-2xl">
+            {stats.todaysHarvest.toFixed(1)} kg
+          </CardTitle>
           <CardAction>
-            <Badge variant="outline">
-              {stats.harvestChange >= 0 ? <TrendingUp /> : <TrendingDown />}
-              {stats.harvestChange >= 0 ? '+' : ''}{stats.harvestChange.toFixed(1)}%
+            <Badge variant="outline" className="text-xs px-1.5 whitespace-nowrap">
+              {stats.harvestChange >= 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+              {stats.harvestChange >= 0 ? '+' : ''}{stats.harvestChange.toFixed(0)}%
             </Badge>
           </CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            {stats.harvestChange >= 0 ? 'Good' : 'Below average'} harvest <Leaf className="size-4" />
+          <div className="line-clamp-1 font-medium">
+            Tea leaves plucked
           </div>
           <div className="text-muted-foreground">Compared to yesterday</div>
         </CardFooter>

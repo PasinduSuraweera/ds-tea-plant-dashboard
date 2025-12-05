@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, XAxis, Bar, BarChart, YAxis, Line, LineChart, ComposedChart } from "recharts";
 
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
@@ -11,25 +11,33 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
-import { format, subDays, subMonths, subYears, startOfDay, endOfDay } from "date-fns";
+import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 
-export const description = "Tea plantation harvest trends and revenue";
+const SL_TIMEZONE = 'Asia/Colombo'
+
+export const description = "Revenue vs Expenses financial overview";
 
 const chartConfig = {
-  harvest: {
-    label: "Harvest",
+  revenue: {
+    label: "Revenue",
     color: "hsl(var(--chart-1))",
   },
-  revenue: {
-    label: "Revenue", 
+  expenses: {
+    label: "Expenses", 
     color: "hsl(var(--chart-2))",
+  },
+  profit: {
+    label: "Profit",
+    color: "hsl(var(--chart-3))",
   },
 } satisfies ChartConfig;
 
 interface ChartData {
   date: string;
-  harvest: number;
   revenue: number;
+  expenses: number;
+  profit: number;
 }
 
 export function ChartAreaInteractive() {
@@ -65,80 +73,66 @@ export function ChartAreaInteractive() {
             startDate = subDays(today, 30);
         }
 
-        // Get daily plucking data
-        const { data: pluckingData, error } = await supabase
-          .from('daily_plucking')
-          .select('date, kg_plucked, rate_per_kg, total_income')
-          .gte('date', format(startDate, 'yyyy-MM-dd'))
-          .lte('date', format(today, 'yyyy-MM-dd'))
+        const startDateStr = format(startDate, 'yyyy-MM-dd')
+        const todayStr = format(today, 'yyyy-MM-dd')
+
+        // Get tea sales data (revenue)
+        const { data: salesData, error: salesError } = await supabase
+          .from('tea_sales')
+          .select('date, total_income')
+          .gte('date', startDateStr)
+          .lte('date', todayStr)
           .order('date', { ascending: true });
 
-        if (error) {
-          console.error('Error fetching chart data:', error);
-          // Handle missing table gracefully
-          if (error.message?.includes('relation "daily_plucking" does not exist')) {
-            console.log('Daily plucking table not yet created - showing sample data');
-          }
-          // Generate realistic sample data if database doesn't exist yet
-          const sampleData: ChartData[] = [];
-          const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-          
-          for (let i = days - 1; i >= 0; i--) {
-            const date = subDays(today, i);
-            const harvest = Math.floor(Math.random() * 150) + 50; // 50-200 kg
-            const rate = 25 + Math.random() * 20; // LKR 25-45 per kg
-            sampleData.push({
-              date: format(date, 'yyyy-MM-dd'),
-              harvest,
-              revenue: harvest * rate,
-            });
-          }
-          setChartData(sampleData);
-        } else if (pluckingData && pluckingData.length > 0) {
-          // Group data by date and calculate totals
-          const dailyData: { [key: string]: { harvest: number; revenue: number } } = {};
-          
-          pluckingData.forEach((item) => {
-            const dateKey = item.date;
-            if (!dailyData[dateKey]) {
-              dailyData[dateKey] = { harvest: 0, revenue: 0 };
-            }
-            dailyData[dateKey].harvest += item.kg_plucked || 0;
-            dailyData[dateKey].revenue += item.total_income || 0;
-          });
+        // Get daily plucking data (expenses - worker payments)
+        const { data: pluckingData, error: pluckingError } = await supabase
+          .from('daily_plucking')
+          .select('date, daily_salary')
+          .gte('date', startDateStr)
+          .lte('date', todayStr)
+          .order('date', { ascending: true });
 
-          // Fill in missing dates with zero values
-          const formattedData: ChartData[] = [];
-          const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-          
-          for (let i = days - 1; i >= 0; i--) {
-            const date = subDays(today, i);
-            const dateKey = format(date, 'yyyy-MM-dd');
-            formattedData.push({
-              date: dateKey,
-              harvest: dailyData[dateKey]?.harvest || 0,
-              revenue: dailyData[dateKey]?.revenue || 0,
-            });
-          }
-          
-          setChartData(formattedData);
-        } else {
-          // No data in database yet, show sample data
-          const sampleData: ChartData[] = [];
-          const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-          
-          for (let i = days - 1; i >= 0; i--) {
-            const date = subDays(today, i);
-            const harvest = Math.floor(Math.random() * 150) + 50;
-            const rate = 25 + Math.random() * 20;
-            sampleData.push({
-              date: format(date, 'yyyy-MM-dd'),
-              harvest,
-              revenue: harvest * rate,
-            });
-          }
-          setChartData(sampleData);
+        // Group data by date
+        const dailyData: { [key: string]: { revenue: number; expenses: number } } = {};
+        
+        // Process sales (revenue)
+        if (salesData) {
+          salesData.forEach((item) => {
+            if (!dailyData[item.date]) {
+              dailyData[item.date] = { revenue: 0, expenses: 0 };
+            }
+            dailyData[item.date].revenue += item.total_income || 0;
+          });
         }
+
+        // Process plucking (expenses - absolute values)
+        if (pluckingData) {
+          pluckingData.forEach((item) => {
+            if (!dailyData[item.date]) {
+              dailyData[item.date] = { revenue: 0, expenses: 0 };
+            }
+            dailyData[item.date].expenses += Math.abs(item.daily_salary || 0);
+          });
+        }
+
+        // Fill in all dates
+        const formattedData: ChartData[] = [];
+        const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+        
+        for (let i = days - 1; i >= 0; i--) {
+          const date = subDays(today, i);
+          const dateKey = format(date, 'yyyy-MM-dd');
+          const revenue = dailyData[dateKey]?.revenue || 0;
+          const expenses = dailyData[dateKey]?.expenses || 0;
+          formattedData.push({
+            date: dateKey,
+            revenue,
+            expenses,
+            profit: revenue - expenses,
+          });
+        }
+        
+        setChartData(formattedData);
       } catch (error) {
         console.error('Error in fetchChartData:', error);
       } finally {
@@ -149,19 +143,20 @@ export function ChartAreaInteractive() {
     fetchChartData();
   }, [timeRange]);
 
-  const totalHarvest = chartData.reduce((sum, item) => sum + item.harvest, 0);
   const totalRevenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
+  const totalExpenses = chartData.reduce((sum, item) => sum + item.expenses, 0);
+  const totalProfit = totalRevenue - totalExpenses;
 
   return (
     <Card className="@container/card">
       <CardHeader>
-        <CardTitle>Tea Plantation Analytics</CardTitle>
+        <CardTitle>Financial Overview</CardTitle>
         <CardDescription>
           <span className="hidden @[540px]/card:block">
-            Total harvest: {totalHarvest.toFixed(1)} kg • Revenue: {formatCurrency(totalRevenue)}
+            Revenue: {formatCurrency(totalRevenue)} • Expenses: {formatCurrency(totalExpenses)} • Profit: {formatCurrency(totalProfit)}
           </span>
           <span className="@[540px]/card:hidden">
-            {totalHarvest.toFixed(1)} kg • {formatCurrency(totalRevenue)}
+            Profit: {formatCurrency(totalProfit)}
           </span>
         </CardDescription>
         <CardAction>
@@ -207,13 +202,13 @@ export function ChartAreaInteractive() {
           <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
             <AreaChart data={chartData}>
               <defs>
-                <linearGradient id="fillHarvest" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-harvest)" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="var(--color-harvest)" stopOpacity={0.1} />
-                </linearGradient>
                 <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--color-revenue)" stopOpacity={0.8} />
                   <stop offset="95%" stopColor="var(--color-revenue)" stopOpacity={0.1} />
+                </linearGradient>
+                <linearGradient id="fillExpenses" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--color-expenses)" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="var(--color-expenses)" stopOpacity={0.1} />
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} />
@@ -243,11 +238,14 @@ export function ChartAreaInteractive() {
                       });
                     }}
                     formatter={(value, name) => {
-                      if (name === "harvest") {
-                        return [`${value} kg`, "Harvest"];
-                      }
                       if (name === "revenue") {
                         return [formatCurrency(Number(value)), "Revenue"];
+                      }
+                      if (name === "expenses") {
+                        return [formatCurrency(Number(value)), "Expenses"];
+                      }
+                      if (name === "profit") {
+                        return [formatCurrency(Number(value)), "Profit"];
                       }
                       return [value, name];
                     }}
@@ -264,12 +262,12 @@ export function ChartAreaInteractive() {
                 stackId="a" 
               />
               <Area 
-                dataKey="harvest" 
+                dataKey="expenses" 
                 type="natural" 
-                fill="url(#fillHarvest)" 
+                fill="url(#fillExpenses)" 
                 fillOpacity={0.4}
-                stroke="var(--color-harvest)" 
-                stackId="a"
+                stroke="var(--color-expenses)" 
+                stackId="b"
               />
             </AreaChart>
           </ChartContainer>

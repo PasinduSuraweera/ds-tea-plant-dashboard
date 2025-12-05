@@ -1,12 +1,19 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { Plus, Search, Leaf, Users, DollarSign, Edit, Trash2, X, Loader2, TrendingUp, CalendarDays } from "lucide-react"
+import { Plus, Search, Leaf, DollarSign, Edit, Trash2, X, Loader2, CalendarDays, Banknote, MinusCircle, Download, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { DataTable } from "@/components/data-table/data-table"
 import { DataTablePagination } from "@/components/data-table/data-table-pagination"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -38,6 +45,7 @@ interface PluckingRecord {
   kg_plucked: number
   rate_per_kg: number
   daily_salary: number
+  is_advance: boolean
   notes: string | null
   created_at: string
   worker_name: string
@@ -53,27 +61,22 @@ export function DailyPluckingManager() {
   const [showForm, setShowForm] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PluckingRecord | null>(null)
-  const [ratePerKg, setRatePerKg] = useState<number>(150) // Default rate per kg
   const [formData, setFormData] = useState({
     worker_id: '',
     kg_plucked: '',
+    rate_per_kg: '150',
+    is_advance: false,
+    advance_amount: '',
     notes: ''
   })
 
   useEffect(() => {
     fetchWorkers()
-    fetchRatePerKg()
   }, [])
 
   useEffect(() => {
     fetchRecords()
   }, [selectedDate])
-
-  async function fetchRatePerKg() {
-    // You can set a default rate or fetch from settings
-    // For now using a default rate of 150 LKR per kg
-    setRatePerKg(150)
-  }
 
   async function fetchWorkers() {
     try {
@@ -119,6 +122,7 @@ export function DailyPluckingManager() {
           kg_plucked: record.kg_plucked,
           rate_per_kg: record.rate_per_kg,
           daily_salary: record.wage_earned,
+          is_advance: (record as any).is_advance || false,
           notes: record.notes,
           created_at: record.created_at,
           worker_name: worker ? `${worker.first_name}${worker.last_name ? ' ' + worker.last_name : ''}` : 'Unknown',
@@ -139,7 +143,10 @@ export function DailyPluckingManager() {
     setEditingRecord(record)
     setFormData({
       worker_id: record.worker_id,
-      kg_plucked: record.kg_plucked.toString(),
+      kg_plucked: record.is_advance ? '0' : record.kg_plucked.toString(),
+      rate_per_kg: record.rate_per_kg.toString(),
+      is_advance: record.is_advance,
+      advance_amount: record.is_advance ? Math.abs(record.daily_salary).toString() : '',
       notes: record.notes || ''
     })
     setShowForm(true)
@@ -168,16 +175,29 @@ export function DailyPluckingManager() {
     e.preventDefault()
     setFormLoading(true)
 
-    const kg_plucked = parseFloat(formData.kg_plucked)
-    const daily_salary = kg_plucked * ratePerKg
+    let kg_plucked: number
+    let rate_per_kg: number
+    let daily_salary: number
+
+    if (formData.is_advance) {
+      // Advance payment - store as negative
+      kg_plucked = 0
+      rate_per_kg = 0
+      daily_salary = -Math.abs(parseFloat(formData.advance_amount) || 0)
+    } else {
+      kg_plucked = parseFloat(formData.kg_plucked) || 0
+      rate_per_kg = parseFloat(formData.rate_per_kg) || 0
+      daily_salary = kg_plucked * rate_per_kg
+    }
 
     const recordData = {
       worker_id: formData.worker_id,
       date: selectedDate,
       kg_plucked,
-      rate_per_kg: ratePerKg,
+      rate_per_kg,
       wage_earned: daily_salary,
       total_income: daily_salary,
+      is_advance: formData.is_advance,
       notes: formData.notes || null
     }
 
@@ -215,6 +235,9 @@ export function DailyPluckingManager() {
     setFormData({
       worker_id: '',
       kg_plucked: '',
+      rate_per_kg: '150',
+      is_advance: false,
+      advance_amount: '',
       notes: ''
     })
     setEditingRecord(null)
@@ -233,19 +256,130 @@ export function DailyPluckingManager() {
   )
 
   const stats = useMemo(() => {
-    const totalKg = records.reduce((sum, r) => sum + r.kg_plucked, 0)
-    const totalSalary = records.reduce((sum, r) => sum + r.daily_salary, 0)
-    const totalWorkers = new Set(records.map(r => r.worker_id)).size
-    const avgPerWorker = totalWorkers > 0 ? totalKg / totalWorkers : 0
+    const totalKg = records.filter(r => !r.is_advance).reduce((sum, r) => sum + r.kg_plucked, 0)
+    // Total paid = earnings + advances (advances are already negative, so we sum all)
+    const totalPaid = records.reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
 
-    return { totalKg, totalSalary, totalWorkers, avgPerWorker }
+    return { totalKg, totalPaid }
   }, [records])
+
+  // Export functions
+  const exportToCSV = () => {
+    const headers = ["Date", "Employee ID", "Worker", "Type", "Kg Plucked", "Rate", "Amount", "Notes"]
+    const rows = filteredRecords.map(record => [
+      selectedDate,
+      record.employee_id,
+      record.worker_name,
+      record.is_advance ? "Advance" : "Plucking",
+      record.is_advance ? "" : record.kg_plucked.toFixed(1),
+      record.is_advance ? "" : record.rate_per_kg.toFixed(2),
+      record.daily_salary.toFixed(2),
+      record.notes || ""
+    ])
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n")
+    
+    const blob = new Blob([csvContent], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `daily-plucking-${selectedDate}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success("Exported to CSV")
+  }
+
+  const exportToJSON = () => {
+    const data = filteredRecords.map(record => ({
+      date: selectedDate,
+      employee_id: record.employee_id,
+      worker_name: record.worker_name,
+      type: record.is_advance ? "Advance" : "Plucking",
+      kg_plucked: record.is_advance ? null : record.kg_plucked,
+      rate_per_kg: record.is_advance ? null : record.rate_per_kg,
+      amount: record.daily_salary,
+      notes: record.notes
+    }))
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `daily-plucking-${selectedDate}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success("Exported to JSON")
+  }
+
+  const handlePrint = () => {
+    const printContent = `
+      <html>
+        <head>
+          <title>Daily Plucking - ${selectedDate}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { font-size: 18px; margin-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background: #f5f5f5; }
+            .advance { color: #dc2626; }
+            .plucking { color: #16a34a; }
+            .summary { margin-top: 20px; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <h1>Daily Plucking Records - ${selectedDate}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Employee ID</th>
+                <th>Worker</th>
+                <th>Type</th>
+                <th>Kg Plucked</th>
+                <th>Rate</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredRecords.map(record => `
+                <tr class="${record.is_advance ? 'advance' : 'plucking'}">
+                  <td>${record.employee_id}</td>
+                  <td>${record.worker_name}</td>
+                  <td>${record.is_advance ? 'Advance' : 'Plucking'}</td>
+                  <td>${record.is_advance ? '-' : record.kg_plucked.toFixed(1) + ' kg'}</td>
+                  <td>${record.is_advance ? '-' : formatCurrency(record.rate_per_kg)}</td>
+                  <td>${formatCurrency(record.daily_salary)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="summary">
+            <p><strong>Total Kg:</strong> ${stats.totalKg.toFixed(1)} kg</p>
+            <p><strong>Total Paid:</strong> ${formatCurrency(stats.totalPaid)}</p>
+          </div>
+        </body>
+      </html>
+    `
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(printContent)
+      printWindow.document.close()
+      printWindow.print()
+    }
+  }
 
   // Calculate live salary preview
   const salaryPreview = useMemo(() => {
+    if (formData.is_advance) {
+      return -(parseFloat(formData.advance_amount) || 0)
+    }
     const kg = parseFloat(formData.kg_plucked) || 0
-    return kg * ratePerKg
-  }, [formData.kg_plucked, ratePerKg])
+    const rate = parseFloat(formData.rate_per_kg) || 0
+    return kg * rate
+  }, [formData.kg_plucked, formData.rate_per_kg, formData.is_advance, formData.advance_amount])
 
   const columns: ColumnDef<PluckingRecord>[] = useMemo(() => [
     {
@@ -259,45 +393,85 @@ export function DailyPluckingManager() {
       id: "worker",
       header: "Worker",
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.worker_name}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{row.original.worker_name}</span>
+          {row.original.is_advance && (
+            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+              Advance
+            </Badge>
+          )}
+        </div>
       ),
     },
     {
       accessorKey: "kg_plucked",
       header: "Kg Plucked",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1.5">
-          <Leaf className="h-3 w-3 text-green-600" />
-          <span className="font-medium">{row.getValue<number>("kg_plucked").toFixed(1)} kg</span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        if (row.original.is_advance) {
+          return <span className="text-muted-foreground text-xs">-</span>
+        }
+        return (
+          <div className="flex items-center gap-1.5">
+            <Leaf className="h-3 w-3 text-muted-foreground" />
+            <span className="font-medium">{row.getValue<number>("kg_plucked").toFixed(1)} kg</span>
+          </div>
+        )
+      },
     },
     {
       accessorKey: "rate_per_kg",
       header: "Rate",
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {formatCurrency(row.getValue<number>("rate_per_kg"))}/kg
-        </span>
-      ),
+      cell: ({ row }) => {
+        if (row.original.is_advance) {
+          return <span className="text-muted-foreground text-xs">-</span>
+        }
+        return (
+          <span className="text-sm text-muted-foreground">
+            {formatCurrency(row.getValue<number>("rate_per_kg"))}/kg
+          </span>
+        )
+      },
     },
     {
       accessorKey: "daily_salary",
-      header: "Daily Salary",
-      cell: ({ row }) => (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="font-semibold text-green-600 cursor-help">
-                {formatCurrency(row.getValue<number>("daily_salary"))}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{row.original.kg_plucked} kg × {formatCurrency(row.original.rate_per_kg)} = {formatCurrency(row.original.daily_salary)}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ),
+      header: "Amount",
+      cell: ({ row }) => {
+        const isAdvance = row.original.is_advance
+        const amount = row.getValue<number>("daily_salary")
+        
+        if (isAdvance) {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="font-semibold cursor-help flex items-center gap-1">
+                    <MinusCircle className="h-3 w-3" />
+                    {formatCurrency(Math.abs(amount))}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Advance payment (will be deducted from monthly salary)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        }
+        
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="font-semibold cursor-help">
+                  {formatCurrency(amount)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{row.original.kg_plucked} kg × {formatCurrency(row.original.rate_per_kg)} = {formatCurrency(amount)}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
     },
     {
       id: "actions",
@@ -363,10 +537,34 @@ export function DailyPluckingManager() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg sm:text-xl font-semibold">Daily Plucking</h2>
-          <Button onClick={() => setShowForm(true)} size="sm">
-            <Plus className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Add Record</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportToCSV}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportToJSON}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button onClick={() => setShowForm(true)} size="sm">
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Add Record</span>
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -393,37 +591,21 @@ export function DailyPluckingManager() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid gap-3 grid-cols-2 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs">
         <Card className="p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total Harvest</span>
-            <Leaf className="h-3.5 w-3.5 text-green-600" />
+            <span className="text-xs text-muted-foreground">Total Kg</span>
+            <Leaf className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <div className="text-lg font-bold mt-1">{stats.totalKg.toFixed(1)} kg</div>
         </Card>
 
         <Card className="p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total Salary</span>
-            <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Total Paid</span>
+            <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
-          <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalSalary)}</div>
-        </Card>
-
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Workers</span>
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.totalWorkers}</div>
-        </Card>
-
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Avg / Worker</span>
-            <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.avgPerWorker.toFixed(1)} kg</div>
+          <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalPaid)}</div>
         </Card>
       </div>
 
@@ -475,6 +657,30 @@ export function DailyPluckingManager() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-3">
+                {/* Record Type Toggle */}
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={!formData.is_advance ? "default" : "outline"}
+                    size="sm"
+                    className="flex-1 h-8"
+                    onClick={() => setFormData({ ...formData, is_advance: false })}
+                  >
+                    <Leaf className="h-3.5 w-3.5 mr-1.5" />
+                    Plucking
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formData.is_advance ? "destructive" : "outline"}
+                    size="sm"
+                    className="flex-1 h-8"
+                    onClick={() => setFormData({ ...formData, is_advance: true })}
+                  >
+                    <Banknote className="h-3.5 w-3.5 mr-1.5" />
+                    Advance
+                  </Button>
+                </div>
+
                 <div className="space-y-1.5">
                   <Label htmlFor="worker_id" className="text-xs">Worker *</Label>
                   <Select
@@ -495,32 +701,82 @@ export function DailyPluckingManager() {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="kg_plucked" className="text-xs">Kg Plucked *</Label>
-                  <Input
-                    id="kg_plucked"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={formData.kg_plucked}
-                    onChange={(e) => setFormData({ ...formData, kg_plucked: e.target.value })}
-                    placeholder="e.g., 15.5"
-                    required
-                    className="h-8"
-                  />
-                </div>
+                {formData.is_advance ? (
+                  /* Advance Payment Fields */
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="advance_amount" className="text-xs">Advance Amount (රු) *</Label>
+                      <Input
+                        id="advance_amount"
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={formData.advance_amount}
+                        onChange={(e) => setFormData({ ...formData, advance_amount: e.target.value })}
+                        placeholder="e.g., 5000"
+                        required
+                        className="h-8"
+                      />
+                    </div>
 
-                {/* Salary Preview */}
-                <div className="rounded-md bg-muted/50 p-3 space-y-1">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Rate per kg</span>
-                    <span>{formatCurrency(ratePerKg)}</span>
-                  </div>
-                  <div className="flex justify-between font-medium">
-                    <span className="text-sm">Daily Salary</span>
-                    <span className="text-green-600">{formatCurrency(salaryPreview)}</span>
-                  </div>
-                </div>
+                    {/* Advance Preview */}
+                    <div className="rounded-md bg-muted/50 border p-3">
+                      <div className="flex justify-between font-medium">
+                        <span className="text-sm text-muted-foreground">Advance Payment</span>
+                        <span>{formatCurrency(Math.abs(salaryPreview))}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Will be deducted from monthly salary
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  /* Plucking Fields */
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kg_plucked" className="text-xs">Kg Plucked *</Label>
+                        <Input
+                          id="kg_plucked"
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={formData.kg_plucked}
+                          onChange={(e) => setFormData({ ...formData, kg_plucked: e.target.value })}
+                          placeholder="e.g., 15.5"
+                          required
+                          className="h-8"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="rate_per_kg" className="text-xs">Rate/kg (රු) *</Label>
+                        <Input
+                          id="rate_per_kg"
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={formData.rate_per_kg}
+                          onChange={(e) => setFormData({ ...formData, rate_per_kg: e.target.value })}
+                          placeholder="e.g., 150"
+                          required
+                          className="h-8"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Salary Preview */}
+                    <div className="rounded-md bg-muted/50 border p-3">
+                      <div className="flex justify-between font-medium">
+                        <span className="text-sm text-muted-foreground">Daily Salary</span>
+                        <span>{formatCurrency(salaryPreview)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formData.kg_plucked || '0'} kg × {formatCurrency(parseFloat(formData.rate_per_kg) || 0)}/kg
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-1.5">
                   <Label htmlFor="notes" className="text-xs">Notes</Label>

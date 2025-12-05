@@ -1,5 +1,4 @@
 import { ChartAreaInteractive } from "./_components/chart-area-interactive";
-import { TaskManager } from "./_components/dynamic-task-manager";
 import { SectionCards } from "./_components/section-cards";
 
 export default function Page() {
@@ -7,7 +6,6 @@ export default function Page() {
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <SectionCards />
       <ChartAreaInteractive />
-      <TaskManager />
     </div>
   );
 }
