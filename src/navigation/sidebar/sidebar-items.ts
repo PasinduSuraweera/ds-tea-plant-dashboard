@@ -100,19 +100,9 @@ export const sidebarItems: NavGroup[] = [
     label: "Operations",
     items: [
       {
-        title: "Maintenance",
-        url: "/dashboard/maintenance",
-        icon: Settings,
-      },
-      {
         title: "Scheduler",
         url: "/dashboard/scheduler",
         icon: Calendar,
-      },
-      {
-        title: "Notes",
-        url: "/dashboard/notes",
-        icon: FileText,
       },
     ],
   },
@@ -124,12 +114,7 @@ export const sidebarItems: NavGroup[] = [
         title: "PDF Reports",
         url: "/dashboard/reports",
         icon: FileText,
-      },
-      {
-        title: "Profit Analytics",
-        url: "/dashboard/profit",
-        icon: TrendingUp,
-      },
+      }
     ],
   },
 ];
