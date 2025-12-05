@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
-import { BadgeCheck, Bell, CreditCard, LogOut } from "lucide-react";
+import { BadgeCheck, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -76,17 +76,9 @@ export function AccountSwitcher() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push('/dashboard/account')}>
             <BadgeCheck />
             Account
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <CreditCard />
-            Billing
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Bell />
-            Notifications
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
