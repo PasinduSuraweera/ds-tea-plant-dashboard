@@ -698,7 +698,7 @@ export function SalaryManager() {
             {searchTerm ? `No workers matching "${searchTerm}"` : 'No salary data for this month'}
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            {searchTerm ? 'Try a different search term' : 'Add daily plucking records to see salary calculations'}
+            {searchTerm ? 'Try a different search term' : 'Add daily records to see salary calculations'}
           </p>
         </div>
       )}

@@ -84,10 +84,10 @@ export function ChartAreaInteractive() {
           .lte('date', todayStr)
           .order('date', { ascending: true });
 
-        // Get daily plucking data (expenses - worker payments)
+        // Get daily plucking data (expenses - worker payments calculated from kg * rate)
         const { data: pluckingData, error: pluckingError } = await supabase
           .from('daily_plucking')
-          .select('date, daily_salary')
+          .select('date, kg_plucked, rate_per_kg')
           .gte('date', startDateStr)
           .lte('date', todayStr)
           .order('date', { ascending: true });
@@ -105,13 +105,14 @@ export function ChartAreaInteractive() {
           });
         }
 
-        // Process plucking (expenses - absolute values)
+        // Process plucking (expenses - calculate from kg * rate)
         if (pluckingData) {
           pluckingData.forEach((item) => {
             if (!dailyData[item.date]) {
               dailyData[item.date] = { revenue: 0, expenses: 0 };
             }
-            dailyData[item.date].expenses += Math.abs(item.daily_salary || 0);
+            const payment = (item.kg_plucked || 0) * (item.rate_per_kg || 0);
+            dailyData[item.date].expenses += payment;
           });
         }
 

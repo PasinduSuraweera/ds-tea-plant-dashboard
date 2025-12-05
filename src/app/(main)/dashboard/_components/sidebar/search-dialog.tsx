@@ -6,13 +6,12 @@ import {
   LayoutDashboard, 
   Users, 
   Leaf, 
-  ClipboardList, 
   TrendingUp,
   Search,
   MapPin,
   DollarSign,
-  Calendar,
-  Factory
+  Scissors,
+  BarChart3
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -38,60 +37,53 @@ interface SearchItem {
 
 const staticItems: SearchItem[] = [
   { 
-    group: "Dashboards", 
+    group: "Overview", 
     icon: LayoutDashboard, 
-    label: "Estate Overview", 
-    href: "/dashboard",
+    label: "Dashboard", 
+    href: "/dashboard/default",
     description: "Main dashboard with estate metrics" 
   },
   { 
-    group: "Dashboards", 
-    icon: TrendingUp, 
-    label: "Task Management", 
-    href: "/dashboard/default",
-    description: "Manage daily estate operations" 
+    group: "Plantation Management", 
+    icon: Leaf, 
+    label: "Plantations", 
+    href: "/dashboard/plantations",
+    description: "Manage plantation areas" 
   },
   { 
-    group: "Management", 
+    group: "Plantation Management", 
+    icon: TrendingUp, 
+    label: "Tea Sales", 
+    href: "/dashboard/tea-sales",
+    description: "Track factory deliveries and sales" 
+  },
+  { 
+    group: "Plantation Management", 
+    icon: BarChart3, 
+    label: "Factory Rates", 
+    href: "/dashboard/factory-rates",
+    description: "View current factory rates" 
+  },
+  { 
+    group: "Employee Management", 
     icon: Users, 
     label: "Workers", 
     href: "/dashboard/workers",
     description: "Manage estate workers and staff" 
   },
   { 
-    group: "Management", 
-    icon: MapPin, 
-    label: "Plantations", 
-    href: "/dashboard/plantations",
-    description: "Manage plantation areas" 
-  },
-  { 
-    group: "Operations", 
-    icon: Leaf, 
-    label: "Daily Plucking", 
+    group: "Employee Management", 
+    icon: Scissors, 
+    label: "Daily Records", 
     href: "/dashboard/daily-plucking",
     description: "Record daily harvest data" 
   },
   { 
-    group: "Operations", 
-    icon: Factory, 
-    label: "Tea Sales", 
-    href: "/dashboard/tea-sales",
-    description: "Track factory deliveries and sales" 
-  },
-  { 
-    group: "Analytics", 
-    icon: TrendingUp, 
-    label: "Tea Analytics", 
-    href: "/dashboard/tea",
-    description: "Harvest trends and analytics" 
-  },
-  { 
-    group: "Finance", 
+    group: "Employee Management", 
     icon: DollarSign, 
-    label: "Finance", 
-    href: "/dashboard/finance",
-    description: "Financial reports and tracking" 
+    label: "Salary Management", 
+    href: "/dashboard/salary",
+    description: "Manage worker salaries and bonuses" 
   },
 ];
 
@@ -134,7 +126,7 @@ export function SearchDialog() {
       // Fetch plantations
       const { data: plantations } = await supabase
         .from('plantations')
-        .select('id, name, size')
+        .select('id, name, area_hectares')
         .limit(10);
 
       if (plantations) {
@@ -143,27 +135,8 @@ export function SearchDialog() {
             group: "Plantations",
             icon: MapPin,
             label: plantation.name,
-            description: `${plantation.size} hectares`,
+            description: `${plantation.area_hectares} hectares`,
             href: `/dashboard/plantations?id=${plantation.id}`
-          });
-        });
-      }
-
-      // Fetch recent tasks
-      const { data: tasks } = await supabase
-        .from('estate_tasks')
-        .select('id, header, type, status')
-        .order('created_at', { ascending: false })
-        .limit(8);
-
-      if (tasks) {
-        tasks.forEach(task => {
-          dynamicItems.push({
-            group: "Recent Tasks",
-            icon: ClipboardList,
-            label: task.header,
-            description: `${task.type} - ${task.status}`,
-            href: `/dashboard/default#task-${task.id}`
           });
         });
       }
@@ -187,6 +160,25 @@ export function SearchDialog() {
             label: `${record.kg_plucked}kg on ${new Date(record.date).toLocaleDateString()}`,
             description: `Worker: ${workerName || 'Unknown'}`,
             href: `/dashboard/daily-plucking?date=${record.date}`
+          });
+        });
+      }
+
+      // Fetch recent tea sales
+      const { data: teaSales } = await supabase
+        .from('tea_sales')
+        .select('id, sale_date, quantity_kg, total_amount')
+        .order('sale_date', { ascending: false })
+        .limit(5);
+
+      if (teaSales) {
+        teaSales.forEach(sale => {
+          dynamicItems.push({
+            group: "Recent Sales",
+            icon: TrendingUp,
+            label: `${sale.quantity_kg}kg - Rs. ${sale.total_amount?.toLocaleString() || 0}`,
+            description: new Date(sale.sale_date).toLocaleDateString(),
+            href: `/dashboard/tea-sales`
           });
         });
       }
@@ -233,10 +225,10 @@ export function SearchDialog() {
         </kbd>
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Search workers, plantations, tasks, and more…" />
+        <CommandInput placeholder="Search pages, workers, plantations..." />
         <CommandList>
           <CommandEmpty>
-            {loading ? "Loading estate data..." : "No results found."}
+            {loading ? "Loading..." : "No results found."}
           </CommandEmpty>
           {[...new Set(searchItems.map((item) => item.group))].map((group, i) => (
             <React.Fragment key={group}>

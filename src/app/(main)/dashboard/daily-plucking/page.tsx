@@ -2,8 +2,8 @@ import { Metadata } from "next"
 import { DailyPluckingManager } from "./_components/daily-plucking-manager"
 
 export const metadata: Metadata = {
-  title: "Daily Plucking Records",
-  description: "Record daily tea plucking data and wages for workers",
+  title: "Daily Records",
+  description: "Record daily tea harvest data and wages for workers",
 }
 
 export default function DailyPluckingPage() {

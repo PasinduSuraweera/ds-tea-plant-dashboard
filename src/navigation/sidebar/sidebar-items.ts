@@ -84,7 +84,7 @@ export const sidebarItems: NavGroup[] = [
         icon: Users,
       },
       {
-        title: "Daily Plucking",
+        title: "Daily Records",
         url: "/dashboard/daily-plucking",
         icon: Scissors,
       },

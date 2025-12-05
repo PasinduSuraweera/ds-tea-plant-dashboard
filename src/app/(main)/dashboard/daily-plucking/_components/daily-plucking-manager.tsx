@@ -286,7 +286,7 @@ export function DailyPluckingManager() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = `daily-plucking-${selectedDate}.csv`
+    link.download = `daily-records-${selectedDate}.csv`
     link.click()
     URL.revokeObjectURL(url)
     toast.success("Exported to CSV")
@@ -308,7 +308,7 @@ export function DailyPluckingManager() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = `daily-plucking-${selectedDate}.json`
+    link.download = `daily-records-${selectedDate}.json`
     link.click()
     URL.revokeObjectURL(url)
     toast.success("Exported to JSON")
@@ -318,7 +318,7 @@ export function DailyPluckingManager() {
     const printContent = `
       <html>
         <head>
-          <title>Daily Plucking - ${selectedDate}</title>
+          <title>Daily Records - ${selectedDate}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 20px; }
             h1 { font-size: 18px; margin-bottom: 10px; }
@@ -331,7 +331,7 @@ export function DailyPluckingManager() {
           </style>
         </head>
         <body>
-          <h1>Daily Plucking Records - ${selectedDate}</h1>
+          <h1>Daily Records - ${selectedDate}</h1>
           <table>
             <thead>
               <tr>
@@ -536,7 +536,7 @@ export function DailyPluckingManager() {
       {/* Header */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg sm:text-xl font-semibold">Daily Plucking</h2>
+          <h2 className="text-lg sm:text-xl font-semibold">Daily Records</h2>
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
