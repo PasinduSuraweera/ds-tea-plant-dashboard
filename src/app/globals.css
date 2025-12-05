@@ -66,8 +66,8 @@ These serve as the fallback; there is no separate default.css file. */
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.3211 0 0);
-  --chart-2: oklch(0.4495 0 0);
+  --chart-1: oklch(0.55 0.2 145);
+  --chart-2: oklch(0.55 0.22 25);
   --chart-3: oklch(0.5693 0 0);
   --chart-4: oklch(0.6830 0 0);
   --chart-5: oklch(0.7921 0 0);
@@ -102,8 +102,8 @@ These serve as the fallback; there is no separate default.css file. */
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.9521 0 0);
-  --chart-2: oklch(0.8576 0 0);
+  --chart-1: oklch(0.7 0.18 145);
+  --chart-2: oklch(0.65 0.2 25);
   --chart-3: oklch(0.7572 0 0);
   --chart-4: oklch(0.6534 0 0);
   --chart-5: oklch(0.5452 0 0);

@@ -21,15 +21,15 @@ export const description = "Revenue vs Expenses financial overview";
 const chartConfig = {
   revenue: {
     label: "Revenue",
-    color: "hsl(var(--chart-1))",
+    color: "#22c55e",
   },
   expenses: {
     label: "Expenses", 
-    color: "hsl(var(--chart-2))",
+    color: "#ef4444",
   },
   profit: {
     label: "Profit",
-    color: "hsl(var(--chart-3))",
+    color: "#3b82f6",
   },
 } satisfies ChartConfig;
 
