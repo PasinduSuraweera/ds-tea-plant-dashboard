@@ -224,13 +224,6 @@ export function SchedulerManager() {
     return eventsByDate.get(dateKey) || []
   }, [selectedDate, eventsByDate, events])
 
-  // Stats
-  const stats = useMemo(() => ({
-    total: events.length,
-    pending: events.filter(e => e.status === 'pending').length,
-    completed: events.filter(e => e.status === 'completed').length,
-  }), [events])
-
   if (loading && events.length === 0) {
     return (
       <div className="flex flex-col justify-center items-center h-64 gap-2">
@@ -252,33 +245,6 @@ export function SchedulerManager() {
             <span className="sm:hidden">Add</span>
           </Button>
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid gap-3 grid-cols-3 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs">
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total Events</span>
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.total}</div>
-        </Card>
-
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Pending</span>
-            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.pending}</div>
-        </Card>
-
-        <Card className="p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Completed</span>
-            <Check className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <div className="text-lg font-bold mt-1">{stats.completed}</div>
-        </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -321,7 +287,7 @@ export function SchedulerManager() {
                   return (
                     <div 
                       key={`empty-${index}`} 
-                      className={`aspect-square border-r border-b border-border bg-muted/20`}
+                      className={`min-h-[48px] sm:min-h-[70px] border-r border-b border-border bg-muted/20`}
                     />
                   )
                 }
@@ -334,19 +300,35 @@ export function SchedulerManager() {
                 return (
                   <button
                     key={dateKey}
-                    onClick={() => handleAddEvent(day)}
+                    onClick={() => setSelectedDate(isSelected ? null : day)}
                     className={`
-                      aspect-square p-1 text-sm relative transition-colors border-r border-b border-border
+                      min-h-[48px] sm:min-h-[70px] p-0.5 sm:p-1 text-sm relative transition-colors border-r border-b border-border text-left flex flex-col
                       ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}
                       ${!isCurrentMonth ? 'text-muted-foreground/50 bg-muted/20' : ''}
                       ${isToday(day) && !isSelected ? 'bg-primary/10' : ''}
                     `}
                   >
-                    <span className={`absolute top-1 left-1.5 text-xs ${isToday(day) ? 'font-bold' : ''}`}>
+                    <span className={`text-[10px] sm:text-xs mb-0.5 sm:mb-1 ${isToday(day) ? 'font-bold' : ''}`}>
                       {format(day, 'd')}
                     </span>
+                    <div className="flex-1 overflow-hidden space-y-0.5 hidden sm:block">
+                      {dayEvents.slice(0, 2).map((event, i) => (
+                        <div key={i} className="flex items-center gap-1 min-w-0">
+                          <div
+                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                              EVENT_TYPES.find(t => t.value === event.event_type)?.color || 'bg-gray-500'
+                            }`}
+                          />
+                          <span className="text-[10px] truncate leading-tight">{event.title}</span>
+                        </div>
+                      ))}
+                      {dayEvents.length > 2 && (
+                        <span className="text-[10px] text-muted-foreground">+{dayEvents.length - 2} more</span>
+                      )}
+                    </div>
+                    {/* Mobile: just show dots */}
                     {dayEvents.length > 0 && (
-                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
+                      <div className="flex gap-0.5 mt-auto sm:hidden">
                         {dayEvents.slice(0, 3).map((event, i) => (
                           <div
                             key={i}
@@ -355,6 +337,9 @@ export function SchedulerManager() {
                             }`}
                           />
                         ))}
+                        {dayEvents.length > 3 && (
+                          <span className="text-[8px] text-muted-foreground">+{dayEvents.length - 3}</span>
+                        )}
                       </div>
                     )}
                   </button>
@@ -367,22 +352,32 @@ export function SchedulerManager() {
         {/* Events List */}
         <Card className="lg:col-span-1">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {selectedDate ? format(selectedDate, 'MMM d, yyyy') : 'All Events'}
-            </CardTitle>
-            <CardDescription className="text-xs">
-              {selectedDateEvents.length} {selectedDateEvents.length === 1 ? 'event' : 'events'}
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base">
+                  {selectedDate ? format(selectedDate, 'MMM d, yyyy') : 'All Events'}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {selectedDateEvents.length} {selectedDateEvents.length === 1 ? 'event' : 'events'}
+                  {selectedDate && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 ml-2 text-xs"
+                      onClick={() => setSelectedDate(null)}
+                    >
+                      Show all
+                    </Button>
+                  )}
+                </CardDescription>
+              </div>
               {selectedDate && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 ml-2 text-xs"
-                  onClick={() => setSelectedDate(null)}
-                >
-                  Show all
+                <Button size="sm" variant="outline" className="h-7" onClick={() => handleAddEvent(selectedDate)}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add
                 </Button>
               )}
-            </CardDescription>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
             {selectedDateEvents.length === 0 ? (
