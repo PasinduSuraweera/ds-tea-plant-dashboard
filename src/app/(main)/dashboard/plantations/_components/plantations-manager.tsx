@@ -147,7 +147,12 @@ export function PlantationsManager() {
               )}
             </div>
             <CardHeader className="p-3 pb-1">
-              <CardTitle className="text-sm font-medium line-clamp-1">{plantation.name}</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium line-clamp-1">{plantation.name}</CardTitle>
+                {plantation.established_date && (
+                  <span className="text-[12px] text-muted-foreground shrink-0">Est. {new Date(plantation.established_date).getFullYear()}</span>
+                )}
+              </div>
               <CardDescription className="text-xs line-clamp-1">{plantation.location}</CardDescription>
             </CardHeader>
             <CardContent className="p-3 pt-0">
@@ -159,10 +164,6 @@ export function PlantationsManager() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Variety:</span>
                   <span className="truncate ml-2">{plantation.tea_variety}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Est:</span>
-                  <span>{plantation.established_date ? new Date(plantation.established_date).getFullYear() : '-'}</span>
                 </div>
               </div>
               <div className="flex gap-1.5 mt-3">

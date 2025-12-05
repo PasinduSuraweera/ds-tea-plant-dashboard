@@ -737,17 +737,17 @@ export function TeaSalesManager() {
           <CardContent>
             <div className="space-y-2">
               {Object.entries(stats.factoryBreakdown).map(([factory, data]) => (
-                <div key={factory} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                  <span className="font-medium text-sm">{factory}</span>
-                  <div className="flex gap-4 text-sm">
+                <div key={factory} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 bg-muted/50 rounded-md gap-1 sm:gap-4">
+                  <span className="font-medium text-sm truncate">{factory}</span>
+                  <div className="flex justify-between sm:justify-end gap-4 text-sm">
                     <span className="text-muted-foreground">{data.kg.toFixed(1)} kg</span>
                     <span className="font-medium">{formatCurrency(data.income)}</span>
                   </div>
                 </div>
               ))}
-              <div className="flex items-center justify-between p-2 bg-primary/10 rounded-md border border-primary/20">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 bg-primary/10 rounded-md border border-primary/20 gap-1 sm:gap-4">
                 <span className="font-semibold text-sm">Day Total</span>
-                <div className="flex gap-4 text-sm">
+                <div className="flex justify-between sm:justify-end gap-4 text-sm">
                   <span className="text-muted-foreground">{stats.totalKg.toFixed(1)} kg</span>
                   <span className="font-bold">{formatCurrency(stats.totalIncome)}</span>
                 </div>

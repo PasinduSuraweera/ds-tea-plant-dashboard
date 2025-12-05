@@ -1,77 +1,104 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Plus, Search, Filter } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { Plus, Search, Users, Edit, Trash2, X, Loader2, Phone, CalendarDays, UserCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
+import { DataTable } from "@/components/data-table/data-table"
+import { DataTablePagination } from "@/components/data-table/data-table-pagination"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { ColumnDef } from "@tanstack/react-table"
+import { useDataTableInstance } from "@/hooks/use-data-table-instance"
 import { supabase } from "@/lib/supabase"
-import { WorkerWithPlantation } from "@/types/database"
-import { WorkerForm } from "./worker-form"
-import { WorkerDetails } from "./worker-details"
-import { formatCurrency } from "@/lib/utils"
+import { format, differenceInYears, differenceInMonths } from "date-fns"
+import { formatInTimeZone } from "date-fns-tz"
+import { toast } from "sonner"
+
+const SL_TIMEZONE = 'Asia/Colombo'
+
+function getSLDate() {
+  return formatInTimeZone(new Date(), SL_TIMEZONE, 'yyyy-MM-dd')
+}
+
+function formatSLDate(dateStr: string, formatStr: string = 'MMM dd, yyyy') {
+  const date = new Date(dateStr + 'T00:00:00')
+  return format(date, formatStr)
+}
+
+function getServiceDuration(hireDate: string) {
+  const start = new Date(hireDate + 'T00:00:00')
+  const now = new Date()
+  const years = differenceInYears(now, start)
+  const months = differenceInMonths(now, start) % 12
+  
+  if (years > 0) {
+    return `${years}y ${months}m`
+  }
+  return `${months}m`
+}
+
+interface Worker {
+  id: string
+  employee_id: string
+  first_name: string
+  last_name: string
+  phone: string | null
+  hire_date: string | null
+  created_at: string
+}
 
 export function WorkersManager() {
-  const [workers, setWorkers] = useState<WorkerWithPlantation[]>([])
+  const [workers, setWorkers] = useState<Worker[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [roleFilter, setRoleFilter] = useState<string>("all")
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [selectedWorker, setSelectedWorker] = useState<WorkerWithPlantation | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [showDetails, setShowDetails] = useState(false)
+  const [formLoading, setFormLoading] = useState(false)
+  const [editingWorker, setEditingWorker] = useState<Worker | null>(null)
+  const [formData, setFormData] = useState({
+    employee_id: '',
+    first_name: '',
+    last_name: '',
+    phone: '',
+    hire_date: getSLDate()
+  })
 
   useEffect(() => {
     fetchWorkers()
   }, [])
 
-  const fetchWorkers = async () => {
+  async function fetchWorkers() {
     try {
       const { data, error } = await supabase
         .from('workers')
-        .select(`
-          *,
-          plantation:plantations(id, name, location)
-        `)
-        .order('last_name')
+        .select('id, employee_id, first_name, last_name, phone, hire_date, created_at')
+        .order('first_name')
 
       if (error) throw error
       setWorkers(data || [])
     } catch (error) {
       console.error('Error fetching workers:', error)
+      toast.error("Failed to load workers")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleCreateWorker = () => {
-    setSelectedWorker(null)
+  const handleEdit = useCallback((worker: Worker) => {
+    setEditingWorker(worker)
+    setFormData({
+      employee_id: worker.employee_id,
+      first_name: worker.first_name,
+      last_name: worker.last_name,
+      phone: worker.phone || '',
+      hire_date: worker.hire_date || getSLDate()
+    })
     setShowForm(true)
-    setShowDetails(false)
-  }
+  }, [])
 
-  const handleEditWorker = (worker: WorkerWithPlantation) => {
-    setSelectedWorker(worker)
-    setShowForm(true)
-    setShowDetails(false)
-  }
-
-  const handleViewWorker = (worker: WorkerWithPlantation) => {
-    setSelectedWorker(worker)
-    setShowDetails(true)
-    setShowForm(false)
-  }
-
-  const handleFormClose = () => {
-    setShowForm(false)
-    setSelectedWorker(null)
-    fetchWorkers() // Refresh data
-  }
-
-  const handleDeleteWorker = async (worker: WorkerWithPlantation) => {
-    if (!confirm(`Are you sure you want to delete ${worker.first_name} ${worker.last_name}?`)) {
+  const handleDelete = useCallback(async (worker: Worker) => {
+    if (!confirm(`Delete ${worker.first_name} ${worker.last_name}?`)) {
       return
     }
 
@@ -82,56 +109,236 @@ export function WorkersManager() {
         .eq('id', worker.id)
       
       if (error) throw error
-      fetchWorkers() // Refresh data
+      
+      setWorkers(prev => prev.filter(w => w.id !== worker.id))
+      toast.success("Worker deleted successfully")
     } catch (error: any) {
       console.error('Error deleting worker:', error)
-      alert(error.message || "Failed to delete worker")
+      toast.error(error.message || "Failed to delete worker")
+    }
+  }, [])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setFormLoading(true)
+
+    const workerData = {
+      employee_id: formData.employee_id,
+      first_name: formData.first_name,
+      last_name: formData.last_name,
+      phone: formData.phone || null,
+      hire_date: formData.hire_date || null
+    }
+
+    try {
+      if (editingWorker) {
+        const { error } = await supabase
+          .from('workers')
+          .update(workerData)
+          .eq('id', editingWorker.id)
+        
+        if (error) throw error
+        toast.success("Worker updated successfully")
+      } else {
+        const { error } = await supabase
+          .from('workers')
+          .insert(workerData)
+        
+        if (error) throw error
+        toast.success("Worker added successfully")
+      }
+
+      setShowForm(false)
+      setEditingWorker(null)
+      resetForm()
+      fetchWorkers()
+    } catch (error: any) {
+      console.error('Error saving worker:', error)
+      toast.error(error.message || "Failed to save worker")
+    } finally {
+      setFormLoading(false)
     }
   }
 
-  const filteredWorkers = workers.filter(worker => {
-    const matchesSearch = 
+  const resetForm = () => {
+    setFormData({
+      employee_id: '',
+      first_name: '',
+      last_name: '',
+      phone: '',
+      hire_date: getSLDate()
+    })
+    setEditingWorker(null)
+  }
+
+  const handleCloseForm = () => {
+    setShowForm(false)
+    resetForm()
+  }
+
+  const filteredWorkers = useMemo(() => 
+    workers.filter(worker =>
       worker.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       worker.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      worker.employee_id.toLowerCase().includes(searchTerm.toLowerCase())
+      worker.employee_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (worker.phone && worker.phone.includes(searchTerm))
+    ), [workers, searchTerm]
+  )
 
-    const matchesRole = roleFilter === "all" || worker.role === roleFilter
-    const matchesStatus = statusFilter === "all" || worker.status === statusFilter
+  const stats = useMemo(() => {
+    const total = workers.length
+    const withPhone = workers.filter(w => w.phone).length
+    
+    return { total, withPhone }
+  }, [workers])
 
-    return matchesSearch && matchesRole && matchesStatus
+  // Generate next employee ID
+  const generateNextEmployeeId = useCallback(() => {
+    const prefix = 'EMP'
+    const existingNumbers = workers
+      .map(w => {
+        const match = w.employee_id.match(/^EMP(\d+)$/i)
+        return match ? parseInt(match[1], 10) : 0
+      })
+      .filter(n => !isNaN(n))
+    
+    const maxNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0
+    const nextNumber = maxNumber + 1
+    return `${prefix}${String(nextNumber).padStart(3, '0')}`
+  }, [workers])
+
+  const columns: ColumnDef<Worker>[] = useMemo(() => [
+    {
+      accessorKey: "employee_id",
+      header: "ID",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs text-muted-foreground">{row.getValue("employee_id")}</span>
+      ),
+    },
+    {
+      id: "name",
+      header: "Name",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <UserCircle className="h-5 w-5 text-muted-foreground" />
+          <span className="font-medium">{row.original.first_name} {row.original.last_name}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "phone",
+      header: "Phone",
+      cell: ({ row }) => {
+        const phone = row.getValue("phone") as string | null
+        return phone ? (
+          <span className="flex items-center gap-1.5 text-sm">
+            <Phone className="h-3 w-3 text-muted-foreground" />
+            {phone}
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-xs">-</span>
+        )
+      },
+    },
+    {
+      accessorKey: "hire_date",
+      header: "Hired",
+      cell: ({ row }) => {
+        const hireDate = row.getValue("hire_date") as string | null
+        if (!hireDate) return <span className="text-muted-foreground text-xs">-</span>
+        
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-sm text-muted-foreground cursor-help flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" />
+                  {getServiceDuration(hireDate)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Hired on {formatSLDate(hireDate, 'MMMM dd, yyyy')}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const worker = row.original
+        return (
+          <div className="flex gap-1 justify-end">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => handleEdit(worker)}
+                  >
+                    <Edit className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit worker</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(worker)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete worker</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )
+      },
+    },
+  ], [handleEdit, handleDelete])
+
+  const table = useDataTableInstance({
+    data: filteredWorkers,
+    columns,
+    getRowId: (row) => row.id,
   })
 
-  const getRoleBadgeVariant = (role: string) => {
-    switch (role) {
-      case 'manager': return 'default'
-      case 'supervisor': return 'secondary'
-      case 'quality_controller': return 'outline'
-      default: return 'destructive'
-    }
-  }
-
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading workers...</div>
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading workers...</span>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Workers</h2>
-          <p className="text-muted-foreground">Manage your plantation workforce</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg sm:text-xl font-semibold">Workers</h2>
+          <Button onClick={() => {
+            setFormData(prev => ({ ...prev, employee_id: generateNextEmployeeId() }))
+            setShowForm(true)
+          }} size="sm">
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Add Worker</span>
+          </Button>
         </div>
-        <Button onClick={handleCreateWorker}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Worker
-        </Button>
-      </div>
 
-      {/* Filters */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search workers..."
             value={searchTerm}
@@ -139,124 +346,119 @@ export function WorkersManager() {
             className="pl-10"
           />
         </div>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Filter by role" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Roles</SelectItem>
-            <SelectItem value="manager">Manager</SelectItem>
-            <SelectItem value="supervisor">Supervisor</SelectItem>
-            <SelectItem value="quality_controller">Quality Controller</SelectItem>
-            <SelectItem value="picker">Picker</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-            <SelectItem value="terminated">Terminated</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
-      {/* Workers Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredWorkers.map((worker) => (
-          <Card key={worker.id} className="cursor-pointer hover:shadow-md transition-shadow">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">
-                  {worker.first_name} {worker.last_name}
-                </CardTitle>
-                <div className="flex gap-1">
-                  <Badge variant={getRoleBadgeVariant(worker.role)}>
-                    {worker.role.replace('_', ' ')}
-                  </Badge>
-                  <Badge variant={worker.status === 'active' ? 'default' : 'secondary'}>
-                    {worker.status}
-                  </Badge>
-                </div>
-              </div>
-              <CardDescription>{worker.employee_id}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Phone:</span>
-                  <span>{worker.phone || 'Not provided'}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Plantation:</span>
-                  <span className="truncate">{worker.plantation?.name || 'Unassigned'}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Salary:</span>
-                  <span className="font-medium">
-                    {worker.salary ? formatCurrency(worker.salary) : 'Not set'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Hire Date:</span>
-                  <span>
-                    {worker.hire_date ? new Date(worker.hire_date).toLocaleDateString() : 'Not specified'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleViewWorker(worker)}
-                >
-                  View Details
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleEditWorker(worker)}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDeleteWorker(worker)}
-                >
-                  Delete
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
 
-      {filteredWorkers.length === 0 && (
+      {/* Workers Table */}
+      <Card>
+        <CardContent className="space-y-4">
+          <div className="max-h-[400px] overflow-auto rounded-md border">
+            <DataTable table={table} columns={columns} />
+          </div>
+          <DataTablePagination table={table} />
+        </CardContent>
+      </Card>
+
+      {filteredWorkers.length === 0 && !loading && (
         <div className="text-center py-12">
-          <p className="text-muted-foreground">No workers found matching your criteria</p>
+          <Users className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+          <p className="text-muted-foreground">
+            {searchTerm ? `No workers matching "${searchTerm}"` : 'No workers found'}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {searchTerm ? 'Try a different search term' : 'Add workers to your team'}
+          </p>
         </div>
       )}
 
-      {/* Forms and Details */}
+      {/* Add/Edit Worker Form Modal */}
       {showForm && (
-        <WorkerForm
-          worker={selectedWorker}
-          onClose={handleFormClose}
-        />
-      )}
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">{editingWorker ? 'Edit Worker' : 'Add Worker'}</CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={handleCloseForm}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="employee_id" className="text-xs">Employee ID *</Label>
+                  <Input
+                    id="employee_id"
+                    value={formData.employee_id}
+                    onChange={(e) => setFormData({...formData, employee_id: e.target.value})}
+                    placeholder="e.g., EMP001"
+                    required
+                    className="h-8"
+                  />
+                </div>
 
-      {showDetails && selectedWorker && (
-        <WorkerDetails
-          worker={selectedWorker}
-          onClose={() => setShowDetails(false)}
-          onEdit={() => handleEditWorker(selectedWorker)}
-        />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="first_name" className="text-xs">First Name *</Label>
+                    <Input
+                      id="first_name"
+                      value={formData.first_name}
+                      onChange={(e) => setFormData({...formData, first_name: e.target.value})}
+                      placeholder="Saman"
+                      required
+                      className="h-8"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="last_name" className="text-xs">Last Name</Label>
+                    <Input
+                      id="last_name"
+                      value={formData.last_name}
+                      onChange={(e) => setFormData({...formData, last_name: e.target.value})}
+                      placeholder="Perera"
+                      className="h-8"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="phone" className="text-xs">Phone</Label>
+                    <Input
+                      id="phone"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                      placeholder="+94 77 123 4567"
+                      className="h-8"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="hire_date" className="text-xs">Hire Date</Label>
+                    <Input
+                      id="hire_date"
+                      type="date"
+                      value={formData.hire_date}
+                      onChange={(e) => setFormData({...formData, hire_date: e.target.value})}
+                      className="h-8"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button type="button" variant="outline" size="sm" onClick={handleCloseForm}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={formLoading}>
+                    {formLoading && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    {editingWorker ? 'Update' : 'Add'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   )
