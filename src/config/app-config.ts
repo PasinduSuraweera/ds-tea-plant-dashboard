@@ -3,12 +3,12 @@ import packageJson from "../../package.json";
 const currentYear = new Date().getFullYear();
 
 export const APP_CONFIG = {
-  name: "Tea Plantation Management System",
+  name: "TeaOS",
   version: packageJson.version,
-  copyright: `© ${currentYear}, Tea Plantation Management System.`,
+  copyright: `© ${currentYear}, TeaOS. Engineered for Ceylon.`,
   meta: {
-    title: "Tea Plantation Management System - Comprehensive Dashboard",
+    title: "TeaOS | The Operating System for Modern Plantations",
     description:
-      "A comprehensive tea plantation management system built with Next.js 16, Tailwind CSS v4, and shadcn/ui. Manage plantations, workers, harvest tracking, quality control, and inventory efficiently.",
+      "Orchestrate your estate from a single pane of glass. Monitor harvest velocity, analyze real-time yield data, and optimize workforce logistics. Built for speed with Next.js 16 & Tailwind v4.",
   },
 };
