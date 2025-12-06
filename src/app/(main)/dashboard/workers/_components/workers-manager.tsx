@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ColumnDef } from "@tanstack/react-table"
 import { useDataTableInstance } from "@/hooks/use-data-table-instance"
 import { supabase } from "@/lib/supabase"
-import { format, differenceInYears, differenceInMonths } from "date-fns"
+import { format, differenceInYears, differenceInMonths, differenceInDays } from "date-fns"
 import { formatInTimeZone } from "date-fns-tz"
 import { toast } from "sonner"
 
@@ -31,12 +31,20 @@ function getServiceDuration(hireDate: string) {
   const start = new Date(hireDate + 'T00:00:00')
   const now = new Date()
   const years = differenceInYears(now, start)
-  const months = differenceInMonths(now, start) % 12
+  const totalMonths = differenceInMonths(now, start)
+  const months = totalMonths % 12
+  const days = differenceInDays(now, start)
   
   if (years > 0) {
     return `${years}y ${months}m`
   }
-  return `${months}m`
+  if (totalMonths > 0) {
+    return `${totalMonths}m`
+  }
+  if (days > 0) {
+    return `${days}d`
+  }
+  return 'Today'
 }
 
 interface Worker {
