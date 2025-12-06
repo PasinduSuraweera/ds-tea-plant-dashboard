@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Search, ImageIcon, X } from "lucide-react"
+import { Plus, Search, ImageIcon, X, Edit, MapPin, Calendar, Maximize2 } from "lucide-react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -146,30 +146,39 @@ export function PlantationsManager() {
             <div className="p-4 space-y-3">
               <div>
                 <h3 className="font-semibold text-base line-clamp-1">{plantation.name}</h3>
-                <p className="text-sm text-muted-foreground line-clamp-1 mt-0.5">{plantation.location}</p>
+                <div className="flex items-center gap-1 mt-1">
+                  <MapPin className="h-3 w-3 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground line-clamp-1">{plantation.location}</p>
+                </div>
               </div>
               
-              <div className="space-y-1.5 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Area</span>
-                  <span className="font-medium">{plantation.area_hectares} ha</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/50">
+                  <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-muted-foreground uppercase leading-none">Area</span>
+                    <span className="text-sm font-semibold mt-0.5">{plantation.area_hectares} ha</span>
+                  </div>
                 </div>
                 {plantation.established_date && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Established</span>
-                    <span className="font-medium">{new Date(plantation.established_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/50">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-muted-foreground uppercase leading-none">Est.</span>
+                      <span className="text-sm font-semibold mt-0.5">{new Date(plantation.established_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex gap-2 pt-1">
+              <div className="flex gap-2 pt-1 justify-end border-t border-border/40">
                 <Button
-                  variant="default"
+                  variant="outline"
                   size="sm"
-                  className="flex-1 h-8 text-sm"
+                  className="h-8 px-3"
                   onClick={() => handleEditPlantation(plantation)}
                 >
-                  Edit
+                  <Edit className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
