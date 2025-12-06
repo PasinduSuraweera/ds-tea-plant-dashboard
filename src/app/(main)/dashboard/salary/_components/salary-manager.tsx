@@ -68,6 +68,7 @@ export function SalaryManager() {
           rate_per_kg,
           wage_earned,
           is_advance,
+          extra_work_payment,
           workers!inner (
             id,
             employee_id,
@@ -117,6 +118,7 @@ export function SalaryManager() {
 
       // Process records to calculate salary per worker
       const workerMap = new Map<string, WorkerSalary>()
+      const workerDates = new Map<string, Set<string>>() // Track unique dates per worker
 
       records?.forEach((record: any) => {
         const workerId = record.worker_id
@@ -141,6 +143,7 @@ export function SalaryManager() {
             is_paid: !!paymentId,
             payment_id: paymentId || null
           })
+          workerDates.set(workerId, new Set<string>())
         }
 
         const workerData = workerMap.get(workerId)!
@@ -149,19 +152,27 @@ export function SalaryManager() {
           // Advance payment (stored as negative)
           workerData.total_advance += Math.abs(record.wage_earned)
         } else {
-          // Regular plucking
+          // Regular plucking + extra work
           workerData.total_kg += record.kg_plucked
-          workerData.total_earned += record.kg_plucked * record.rate_per_kg
-          workerData.days_worked += 1
+          const pluckingAmount = record.kg_plucked * record.rate_per_kg
+          const extraWorkAmount = record.extra_work_payment || 0
+          workerData.total_earned += pluckingAmount + extraWorkAmount
+          
+          // Add date to the set (only counts unique dates)
+          workerDates.get(workerId)!.add(record.date)
         }
       })
 
-      // Calculate net salary and averages
-      const salaryList = Array.from(workerMap.values()).map(w => ({
-        ...w,
-        net_salary: w.total_earned + w.bonus - w.total_advance,
-        avg_kg_per_day: w.days_worked > 0 ? w.total_kg / w.days_worked : 0
-      }))
+      // Calculate net salary and averages, using unique date count for days worked
+      const salaryList = Array.from(workerMap.values()).map(w => {
+        const daysWorked = workerDates.get(w.worker_id)?.size || 0
+        return {
+          ...w,
+          days_worked: daysWorked,
+          net_salary: w.total_earned + w.bonus - w.total_advance,
+          avg_kg_per_day: daysWorked > 0 ? w.total_kg / daysWorked : 0
+        }
+      })
 
       // Sort by net salary descending
       salaryList.sort((a, b) => b.net_salary - a.net_salary)
@@ -304,7 +315,7 @@ export function SalaryManager() {
 
   // Export functions
   const exportToCSV = () => {
-    const headers = ["Employee ID", "Worker Name", "Days Worked", "Total Kg", "Avg Kg/Day", "Paid", "Bonus", "Advances", "Net Salary"]
+    const headers = ["Employee ID", "Worker Name", "Days Worked", "Total Kg", "Avg Kg/Day", "Total", "Bonus", "Advances", "Net Salary"]
     const rows = filteredSalaries.map(salary => [
       salary.employee_id,
       salary.worker_name,
@@ -396,7 +407,7 @@ export function SalaryManager() {
                 <th class="number">Days</th>
                 <th class="number">Total Kg</th>
                 <th class="number">Avg/Day</th>
-                <th class="number">Paid</th>
+                <th class="number">Total</th>
                 <th class="number">Bonus</th>
                 <th class="number">Advances</th>
                 <th class="number">Net Salary</th>
@@ -492,7 +503,7 @@ export function SalaryManager() {
     },
     {
       accessorKey: "total_earned",
-      header: "Paid",
+      header: "Total",
       cell: ({ row }) => (
         <span className="text-sm">{formatCurrency(row.getValue<number>("total_earned"))}</span>
       ),

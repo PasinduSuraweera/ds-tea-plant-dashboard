@@ -18,7 +18,8 @@ const plantationSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   location: z.string().min(2, "Location must be at least 2 characters"),
   area_hectares: z.number().positive("Area must be positive"),
-  tea_variety: z.string().optional(),
+  tea_variety: z.string().min(1, "Tea variety is required"),
+  number_of_plants: z.number().positive("Number of plants must be positive").optional(),
   established_date: z.string().optional(),
   image_url: z.string().optional(),
 })
@@ -48,7 +49,8 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
       name: plantation?.name || "",
       location: plantation?.location || "",
       area_hectares: plantation?.area_hectares || 0,
-      tea_variety: plantation?.tea_variety || undefined,
+      tea_variety: plantation?.tea_variety || "",
+      number_of_plants: plantation?.number_of_plants || undefined,
       established_date: plantation?.established_date || "",
       image_url: plantation?.image_url || "",
     },
@@ -262,6 +264,32 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
                 />
                 {errors.area_hectares && (
                   <p className="text-sm text-destructive">{errors.area_hectares.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tea_variety">Tea Variety *</Label>
+                <Input
+                  id="tea_variety"
+                  {...register("tea_variety")}
+                  placeholder="e.g., Ceylon Black, Green Tea"
+                />
+                {errors.tea_variety && (
+                  <p className="text-sm text-destructive">{errors.tea_variety.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="number_of_plants">Number of Plants</Label>
+                <Input
+                  id="number_of_plants"
+                  type="number"
+                  step="1"
+                  {...register("number_of_plants", { valueAsNumber: true })}
+                  placeholder="50000"
+                />
+                {errors.number_of_plants && (
+                  <p className="text-sm text-destructive">{errors.number_of_plants.message}</p>
                 )}
               </div>
 

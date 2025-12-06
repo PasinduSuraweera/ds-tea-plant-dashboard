@@ -38,6 +38,11 @@ interface Worker {
   last_name: string | null
 }
 
+interface ExtraWork {
+  description: string
+  amount: number
+}
+
 interface PluckingRecord {
   id: string
   worker_id: string
@@ -45,6 +50,8 @@ interface PluckingRecord {
   kg_plucked: number
   rate_per_kg: number
   daily_salary: number
+  extra_work_payment: number
+  extra_work_items: ExtraWork[]
   is_advance: boolean
   notes: string | null
   created_at: string
@@ -61,6 +68,7 @@ export function DailyPluckingManager() {
   const [showForm, setShowForm] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PluckingRecord | null>(null)
+  const [extraWorkItems, setExtraWorkItems] = useState<ExtraWork[]>([])
   const [formData, setFormData] = useState({
     worker_id: '',
     kg_plucked: '',
@@ -99,7 +107,7 @@ export function DailyPluckingManager() {
       const { data, error } = await supabase
         .from('daily_plucking')
         .select(`
-          id, worker_id, date, kg_plucked, rate_per_kg, wage_earned, notes, created_at,
+          id, worker_id, date, kg_plucked, rate_per_kg, wage_earned, extra_work_payment, notes, is_advance, created_at,
           workers (employee_id, first_name, last_name)
         `)
         .eq('date', selectedDate)
@@ -115,6 +123,23 @@ export function DailyPluckingManager() {
 
       const processedRecords: PluckingRecord[] = (data || []).map(record => {
         const worker = record.workers as any
+        const extraWorkPayment = (record as any).extra_work_payment || 0
+        let extraWorkItems: ExtraWork[] = []
+        
+        // Try to parse extra work items from notes or create from payment
+        try {
+          const notesData = record.notes ? JSON.parse(record.notes) : null
+          if (notesData && notesData.extra_work) {
+            extraWorkItems = notesData.extra_work
+          } else if (extraWorkPayment > 0) {
+            extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
+          }
+        } catch {
+          if (extraWorkPayment > 0) {
+            extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
+          }
+        }
+        
         return {
           id: record.id,
           worker_id: record.worker_id,
@@ -122,6 +147,8 @@ export function DailyPluckingManager() {
           kg_plucked: record.kg_plucked,
           rate_per_kg: record.rate_per_kg,
           daily_salary: record.wage_earned,
+          extra_work_payment: extraWorkPayment,
+          extra_work_items: extraWorkItems,
           is_advance: (record as any).is_advance || false,
           notes: record.notes,
           created_at: record.created_at,
@@ -141,6 +168,7 @@ export function DailyPluckingManager() {
 
   const handleEdit = useCallback((record: PluckingRecord) => {
     setEditingRecord(record)
+    setExtraWorkItems(record.extra_work_items || [])
     setFormData({
       worker_id: record.worker_id,
       kg_plucked: record.is_advance ? '0' : record.kg_plucked.toString(),
@@ -178,6 +206,7 @@ export function DailyPluckingManager() {
     let kg_plucked: number
     let rate_per_kg: number
     let daily_salary: number
+    const extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
 
     if (formData.is_advance) {
       // Advance payment - store as negative
@@ -187,8 +216,18 @@ export function DailyPluckingManager() {
     } else {
       kg_plucked = parseFloat(formData.kg_plucked) || 0
       rate_per_kg = parseFloat(formData.rate_per_kg) || 0
-      daily_salary = kg_plucked * rate_per_kg
+      daily_salary = (kg_plucked * rate_per_kg) + extra_work_payment
     }
+
+    // Store extra work items in notes as JSON
+    const notesData: any = {}
+    if (extraWorkItems.length > 0) {
+      notesData.extra_work = extraWorkItems
+    }
+    if (formData.notes) {
+      notesData.text = formData.notes
+    }
+    const notesString = Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : null
 
     const recordData = {
       worker_id: formData.worker_id,
@@ -197,8 +236,9 @@ export function DailyPluckingManager() {
       rate_per_kg,
       wage_earned: daily_salary,
       total_income: daily_salary,
+      extra_work_payment,
       is_advance: formData.is_advance,
-      notes: formData.notes || null
+      notes: notesString
     }
 
     try {
@@ -240,6 +280,7 @@ export function DailyPluckingManager() {
       advance_amount: '',
       notes: ''
     })
+    setExtraWorkItems([])
     setEditingRecord(null)
   }
 
@@ -378,8 +419,9 @@ export function DailyPluckingManager() {
     }
     const kg = parseFloat(formData.kg_plucked) || 0
     const rate = parseFloat(formData.rate_per_kg) || 0
-    return kg * rate
-  }, [formData.kg_plucked, formData.rate_per_kg, formData.is_advance, formData.advance_amount])
+    const extraWork = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
+    return (kg * rate) + extraWork
+  }, [formData.kg_plucked, formData.rate_per_kg, extraWorkItems, formData.is_advance, formData.advance_amount])
 
   const columns: ColumnDef<PluckingRecord>[] = useMemo(() => [
     {
@@ -393,22 +435,29 @@ export function DailyPluckingManager() {
       id: "worker",
       header: "Worker",
       cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{row.original.worker_name}</span>
-          {row.original.is_advance && (
-            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-              Advance
-            </Badge>
-          )}
-        </div>
+        <span className="font-medium">{row.original.worker_name}</span>
       ),
+    },
+    {
+      id: "type",
+      header: "Type",
+      cell: ({ row }) => {
+        const hasExtraWork = (row.original.extra_work_items?.length || 0) > 0
+        if (row.original.is_advance) {
+          return <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Advance</Badge>
+        }
+        if (hasExtraWork) {
+          return <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Plucking + Work</Badge>
+        }
+        return <Badge variant="outline" className="text-[10px] px-1.5 py-0">Plucking</Badge>
+      },
     },
     {
       accessorKey: "kg_plucked",
       header: "Kg Plucked",
       cell: ({ row }) => {
         if (row.original.is_advance) {
-          return <span className="text-muted-foreground text-xs">-</span>
+          return <span className="text-muted-foreground">-</span>
         }
         return (
           <div className="flex items-center gap-1.5">
@@ -423,7 +472,7 @@ export function DailyPluckingManager() {
       header: "Rate",
       cell: ({ row }) => {
         if (row.original.is_advance) {
-          return <span className="text-muted-foreground text-xs">-</span>
+          return <span className="text-muted-foreground">-</span>
         }
         return (
           <span className="text-sm text-muted-foreground">
@@ -457,16 +506,32 @@ export function DailyPluckingManager() {
           )
         }
         
+        const extraWorkTotal = row.original.extra_work_items?.reduce((sum, item) => sum + item.amount, 0) || 0
+        const pluckingTotal = row.original.kg_plucked * row.original.rate_per_kg
+        const hasExtraWork = extraWorkTotal > 0
+
         return (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="font-semibold cursor-help">
                   {formatCurrency(amount)}
+                  {hasExtraWork && <span className="text-xs text-muted-foreground ml-1">*</span>}
                 </span>
               </TooltipTrigger>
-              <TooltipContent>
-                <p>{row.original.kg_plucked} kg × {formatCurrency(row.original.rate_per_kg)} = {formatCurrency(amount)}</p>
+              <TooltipContent className="max-w-xs">
+                <div className="space-y-1">
+                  <p>{row.original.kg_plucked} kg × {formatCurrency(row.original.rate_per_kg)} = {formatCurrency(pluckingTotal)}</p>
+                  {hasExtraWork && (
+                    <>
+                      <p className="text-xs font-semibold mt-2">Extra Work:</p>
+                      {row.original.extra_work_items?.map((item, idx) => (
+                        <p key={idx} className="text-xs">• {item.description}: {formatCurrency(item.amount)}</p>
+                      ))}
+                      <p className="text-xs font-semibold mt-1">Total: {formatCurrency(amount)}</p>
+                    </>
+                  )}
+                </div>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -602,7 +667,7 @@ export function DailyPluckingManager() {
 
         <Card className="p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total Paid</span>
+            <span className="text-xs text-muted-foreground">Total to be paid</span>
             <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalPaid)}</div>
@@ -765,6 +830,67 @@ export function DailyPluckingManager() {
                       </div>
                     </div>
 
+                    {/* Extra Work Items */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Extra Work</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => setExtraWorkItems([...extraWorkItems, { description: '', amount: 0 }])}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add Work
+                        </Button>
+                      </div>
+                      
+                      {extraWorkItems.map((item, index) => (
+                        <div key={index} className="flex gap-2 items-start">
+                          <div className="flex-1 space-y-1">
+                            <Input
+                              type="text"
+                              placeholder="e.g., Weeding"
+                              value={item.description}
+                              onChange={(e) => {
+                                const newItems = [...extraWorkItems]
+                                newItems[index].description = e.target.value
+                                setExtraWorkItems(newItems)
+                              }}
+                              className="h-8"
+                            />
+                          </div>
+                          <div className="w-24">
+                            <Input
+                              type="number"
+                              step="1"
+                              min="0"
+                              placeholder="රු"
+                              value={item.amount || ''}
+                              onChange={(e) => {
+                                const newItems = [...extraWorkItems]
+                                newItems[index].amount = parseFloat(e.target.value) || 0
+                                setExtraWorkItems(newItems)
+                              }}
+                              className="h-8"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-destructive"
+                            onClick={() => {
+                              setExtraWorkItems(extraWorkItems.filter((_, i) => i !== index))
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
                     {/* Salary Preview */}
                     <div className="rounded-md bg-muted/50 border p-3">
                       <div className="flex justify-between font-medium">
@@ -773,7 +899,20 @@ export function DailyPluckingManager() {
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {formData.kg_plucked || '0'} kg × {formatCurrency(parseFloat(formData.rate_per_kg) || 0)}/kg
+                        {extraWorkItems.length > 0 && (
+                          <> + {formatCurrency(extraWorkItems.reduce((sum, item) => sum + item.amount, 0))} extra</>
+                        )}
                       </p>
+                      {extraWorkItems.length > 0 && (
+                        <div className="mt-2 pt-2 border-t space-y-0.5">
+                          {extraWorkItems.map((item, index) => (
+                            <div key={index} className="flex justify-between text-xs">
+                              <span className="text-muted-foreground truncate mr-2">{item.description || 'Work'}</span>
+                              <span>{formatCurrency(item.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </>
                 )}

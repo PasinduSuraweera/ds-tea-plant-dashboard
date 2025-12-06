@@ -150,6 +150,11 @@ export function PlantationsManager() {
                   <MapPin className="h-3 w-3 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground line-clamp-1">{plantation.location}</p>
                 </div>
+                {plantation.tea_variety && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    <span className="font-medium">Variety:</span> {plantation.tea_variety}
+                  </p>
+                )}
               </div>
               
               <div className="grid grid-cols-2 gap-2">
@@ -160,16 +165,24 @@ export function PlantationsManager() {
                     <span className="text-sm font-semibold mt-0.5">{plantation.area_hectares} ha</span>
                   </div>
                 </div>
-                {plantation.established_date && (
+                {plantation.number_of_plants && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/50">
-                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-muted-foreground uppercase leading-none">Est.</span>
-                      <span className="text-sm font-semibold mt-0.5">{new Date(plantation.established_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <div className="flex flex-col w-full">
+                      <span className="text-[10px] text-muted-foreground uppercase leading-none">Plants</span>
+                      <span className="text-sm font-semibold mt-0.5">{plantation.number_of_plants.toLocaleString()}</span>
                     </div>
                   </div>
                 )}
               </div>
+              {plantation.established_date && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/50">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-muted-foreground uppercase leading-none">Established</span>
+                    <span className="text-sm font-semibold mt-0.5">{new Date(plantation.established_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-2 pt-1 justify-end border-t border-border/40">
                 <Button
