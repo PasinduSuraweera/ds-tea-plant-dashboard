@@ -161,6 +161,12 @@ These serve as the fallback; there is no separate default.css file. */
   }
 }
 
+/* Toast description text fix for light mode */
+[data-sonner-toast] [data-description] {
+  color: hsl(var(--foreground)) !important;
+  opacity: 0.9;
+}
+
 html {
   overscroll-behavior: none;
 }
