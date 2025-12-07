@@ -182,22 +182,45 @@ export function ReportsManager() {
                 <th>Date</th>
                 <th>Employee ID</th>
                 <th>Worker</th>
+                <th>Type</th>
                 <th class="number">Kg Plucked</th>
                 <th class="number">Rate/Kg</th>
-                <th class="number">Wage Earned</th>
+                <th class="number">Extra Work</th>
+                <th class="number">Total Wage</th>
               </tr>
             </thead>
             <tbody>
-              ${(data || []).map((r: any) => `
+              ${(data || []).map((r: any) => {
+                const isAdvance = r.is_advance || false
+                const pluckingAmount = isAdvance ? 0 : (r.kg_plucked || 0) * (r.rate_per_kg || 0)
+                const extraWork = r.extra_work_payment || 0
+                const totalWage = isAdvance ? Math.abs(r.kg_plucked || 0) : pluckingAmount + extraWork
+                
+                // Parse extra work items if available
+                let extraWorkDetails = ''
+                try {
+                  if (r.notes) {
+                    const notesData = JSON.parse(r.notes)
+                    if (notesData.extra_work && notesData.extra_work.length > 0) {
+                      extraWorkDetails = '<br><small style="color: #666;">' + 
+                        notesData.extra_work.map((w: any) => `${w.description}: ${formatCurrency(w.amount)}`).join(', ') +
+                        '</small>'
+                    }
+                  }
+                } catch (e) {}
+                
+                return `
                 <tr>
                   <td>${format(new Date(r.date), 'MMM d, yyyy')}</td>
                   <td>${r.workers?.employee_id || '-'}</td>
                   <td>${r.workers?.first_name || ''} ${r.workers?.last_name || ''}</td>
-                  <td class="number">${r.kg_plucked?.toFixed(1) || 0} kg</td>
-                  <td class="number">${formatCurrency(r.rate_per_kg || 0)}</td>
-                  <td class="number">${formatCurrency((r.kg_plucked || 0) * (r.rate_per_kg || 0))}</td>
+                  <td>${isAdvance ? '<span style="color: #dc2626;">Advance</span>' : (extraWork > 0 ? 'Plucking + Work' : 'Plucking')}</td>
+                  <td class="number">${isAdvance ? '-' : (r.kg_plucked?.toFixed(1) || 0) + ' kg'}</td>
+                  <td class="number">${isAdvance ? '-' : formatCurrency(r.rate_per_kg || 0)}</td>
+                  <td class="number">${extraWork > 0 ? formatCurrency(extraWork) + extraWorkDetails : '-'}</td>
+                  <td class="number" style="font-weight: 600;">${isAdvance ? '<span style="color: #dc2626;">-' : ''}${formatCurrency(totalWage)}${isAdvance ? '</span>' : ''}</td>
                 </tr>
-              `).join('')}
+              `}).join('')}
             </tbody>
           </table>
         `

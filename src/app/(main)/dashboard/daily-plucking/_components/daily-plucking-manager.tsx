@@ -361,45 +361,77 @@ export function DailyPluckingManager() {
         <head>
           <title>Daily Records - ${selectedDate}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            h1 { font-size: 18px; margin-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background: #f5f5f5; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; padding: 40px; color: #333; }
+            .header { margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+            .header h1 { font-size: 24px; margin-bottom: 5px; }
+            .header p { color: #666; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+            th { background: #f5f5f5; font-weight: 600; }
+            .number { text-align: right; }
             .advance { color: #dc2626; }
-            .plucking { color: #16a34a; }
-            .summary { margin-top: 20px; font-size: 14px; }
+            .extra-work-detail { color: #666; font-size: 10px; margin-top: 2px; }
+            .summary { margin-top: 30px; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+            .summary p { margin: 5px 0; font-size: 14px; }
+            .summary strong { font-weight: 600; }
+            .footer { margin-top: 40px; text-align: center; color: #999; font-size: 11px; }
+            @media print {
+              body { padding: 20px; }
+            }
           </style>
         </head>
         <body>
-          <h1>Daily Records - ${selectedDate}</h1>
+          <div class="header">
+            <h1>Daily Records Report</h1>
+            <p>${format(new Date(selectedDate), 'MMMM d, yyyy')} • Generated on ${format(new Date(), 'MMM d, yyyy h:mm a')}</p>
+          </div>
           <table>
             <thead>
               <tr>
                 <th>Employee ID</th>
                 <th>Worker</th>
                 <th>Type</th>
-                <th>Kg Plucked</th>
-                <th>Rate</th>
-                <th>Amount</th>
+                <th class="number">Kg Plucked</th>
+                <th class="number">Rate/Kg</th>
+                <th class="number">Extra Work</th>
+                <th class="number">Total Wage</th>
               </tr>
             </thead>
             <tbody>
-              ${filteredRecords.map(record => `
-                <tr class="${record.is_advance ? 'advance' : 'plucking'}">
+              ${filteredRecords.map(record => {
+                const isAdvance = record.is_advance || false
+                const pluckingAmount = isAdvance ? 0 : record.kg_plucked * record.rate_per_kg
+                const extraWork = record.extra_work_payment || 0
+                const totalWage = isAdvance ? Math.abs(record.daily_salary) : pluckingAmount + extraWork
+                
+                // Parse extra work items if available
+                let extraWorkDetails = ''
+                if (record.extra_work_items && record.extra_work_items.length > 0) {
+                  extraWorkDetails = '<div class="extra-work-detail">' + 
+                    record.extra_work_items.map((w: any) => `${w.description}: ${formatCurrency(w.amount)}`).join(', ') +
+                    '</div>'
+                }
+                
+                return `
+                <tr>
                   <td>${record.employee_id}</td>
                   <td>${record.worker_name}</td>
-                  <td>${record.is_advance ? 'Advance' : 'Plucking'}</td>
-                  <td>${record.is_advance ? '-' : record.kg_plucked.toFixed(1) + ' kg'}</td>
-                  <td>${record.is_advance ? '-' : formatCurrency(record.rate_per_kg)}</td>
-                  <td>${formatCurrency(record.daily_salary)}</td>
+                  <td>${isAdvance ? '<span class="advance">Advance</span>' : (extraWork > 0 ? 'Plucking + Work' : 'Plucking')}</td>
+                  <td class="number">${isAdvance ? '-' : record.kg_plucked.toFixed(1) + ' kg'}</td>
+                  <td class="number">${isAdvance ? '-' : formatCurrency(record.rate_per_kg)}</td>
+                  <td class="number">${extraWork > 0 ? formatCurrency(extraWork) + extraWorkDetails : '-'}</td>
+                  <td class="number" style="font-weight: 600;">${isAdvance ? '<span class="advance">-' : ''}${formatCurrency(totalWage)}${isAdvance ? '</span>' : ''}</td>
                 </tr>
-              `).join('')}
+              `}).join('')}
             </tbody>
           </table>
           <div class="summary">
-            <p><strong>Total Kg:</strong> ${stats.totalKg.toFixed(1)} kg</p>
-            <p><strong>Total Paid:</strong> ${formatCurrency(stats.totalPaid)}</p>
+            <p><strong>Total Kg Plucked:</strong> ${stats.totalKg.toFixed(1)} kg</p>
+            <p><strong>Total amount to be paid:</strong> ${formatCurrency(stats.totalPaid)}</p>
+          </div>
+          <div class="footer">
+            <p>TeaOS - Tea Plantation Management System</p>
           </div>
         </body>
       </html>
