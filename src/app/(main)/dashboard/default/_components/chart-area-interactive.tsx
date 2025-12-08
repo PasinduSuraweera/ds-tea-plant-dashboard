@@ -87,7 +87,7 @@ export function ChartAreaInteractive() {
         // Get daily plucking data (expenses - worker payments calculated from kg * rate + extra work)
         const { data: pluckingData, error: pluckingError } = await supabase
           .from('daily_plucking')
-          .select('date, kg_plucked, rate_per_kg, is_advance, extra_work_payment')
+          .select('date, kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
           .gte('date', startDateStr)
           .lte('date', todayStr)
           .order('date', { ascending: true });
@@ -112,8 +112,8 @@ export function ChartAreaInteractive() {
               dailyData[item.date] = { revenue: 0, expenses: 0 };
             }
             if (item.is_advance) {
-              // For advances, kg_plucked stores the amount
-              dailyData[item.date].expenses += Math.abs(item.kg_plucked || 0);
+              // For advances, wage_earned is stored as negative, so take absolute value
+              dailyData[item.date].expenses += Math.abs(item.wage_earned || 0);
             } else {
               const pluckingAmount = (item.kg_plucked || 0) * (item.rate_per_kg || 0);
               const extraWorkAmount = item.extra_work_payment || 0;

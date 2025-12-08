@@ -76,20 +76,20 @@ export function SectionCards() {
         // === EXPENSES: From daily_plucking (worker payments) ===
         const { data: currentPayments } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment')
+          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
           .gte('date', format(currentMonth, 'yyyy-MM-dd'))
           .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
 
         const { data: lastPayments } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment')
+          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
           .gte('date', format(lastMonth, 'yyyy-MM-dd'))
           .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
 
-        // Calculate expenses: plucking records = kg * rate + extra work, advances = kg (which stores amount)
+        // Calculate expenses: plucking records = kg * rate + extra work, advances = wage_earned (stored as negative)
         const monthlyExpenses = currentPayments?.reduce((sum, p) => {
           if (p.is_advance) {
-            return sum + Math.abs(p.kg_plucked || 0) // For advances, kg_plucked stores the amount
+            return sum + Math.abs(p.wage_earned || 0) // For advances, wage_earned is stored as negative
           }
           const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
           const extraWorkAmount = p.extra_work_payment || 0
@@ -97,7 +97,7 @@ export function SectionCards() {
         }, 0) || 0
         const lastMonthExpenses = lastPayments?.reduce((sum, p) => {
           if (p.is_advance) {
-            return sum + Math.abs(p.kg_plucked || 0)
+            return sum + Math.abs(p.wage_earned || 0)
           }
           const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
           const extraWorkAmount = p.extra_work_payment || 0

@@ -298,25 +298,35 @@ export function DailyPluckingManager() {
 
   const stats = useMemo(() => {
     const totalKg = records.filter(r => !r.is_advance).reduce((sum, r) => sum + r.kg_plucked, 0)
-    // Total paid = earnings + advances (advances are already negative, so we sum all)
-    const totalPaid = records.reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
+    // Paid = advances given (absolute value)
+    const totalPaid = records.filter(r => r.is_advance).reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
+    // To be paid = plucking + extra work (no advances)
+    const totalToBePaid = records.filter(r => !r.is_advance).reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
 
-    return { totalKg, totalPaid }
+    return { totalKg, totalPaid, totalToBePaid }
   }, [records])
 
   // Export functions
   const exportToCSV = () => {
-    const headers = ["Date", "Employee ID", "Worker", "Type", "Kg Plucked", "Rate", "Amount", "Notes"]
-    const rows = filteredRecords.map(record => [
-      selectedDate,
-      record.employee_id,
-      record.worker_name,
-      record.is_advance ? "Advance" : "Plucking",
-      record.is_advance ? "" : record.kg_plucked.toFixed(1),
-      record.is_advance ? "" : record.rate_per_kg.toFixed(2),
-      record.daily_salary.toFixed(2),
-      record.notes || ""
-    ])
+    const headers = ["Date", "Employee ID", "Worker", "Type", "Kg Plucked", "Rate", "Extra Work", "Total Amount", "Notes"]
+    const rows = filteredRecords.map(record => {
+      const isAdvance = record.is_advance || false
+      const extraWork = record.extra_work_payment || 0
+      const type = isAdvance ? "Advance" : (extraWork > 0 ? "Plucking + Work" : "Plucking")
+      const extraWorkDetail = record.extra_work_items?.map(w => `${w.description}: ${w.amount}`).join('; ') || ""
+      
+      return [
+        selectedDate,
+        record.employee_id,
+        record.worker_name,
+        type,
+        isAdvance ? "-" : record.kg_plucked.toFixed(1),
+        isAdvance ? "-" : record.rate_per_kg.toFixed(2),
+        extraWork > 0 ? `${extraWork.toFixed(2)} (${extraWorkDetail})` : "-",
+        Math.abs(record.daily_salary).toFixed(2),
+        record.notes || ""
+      ]
+    })
     
     const csvContent = [
       headers.join(","),
@@ -334,16 +344,24 @@ export function DailyPluckingManager() {
   }
 
   const exportToJSON = () => {
-    const data = filteredRecords.map(record => ({
-      date: selectedDate,
-      employee_id: record.employee_id,
-      worker_name: record.worker_name,
-      type: record.is_advance ? "Advance" : "Plucking",
-      kg_plucked: record.is_advance ? null : record.kg_plucked,
-      rate_per_kg: record.is_advance ? null : record.rate_per_kg,
-      amount: record.daily_salary,
-      notes: record.notes
-    }))
+    const data = filteredRecords.map(record => {
+      const isAdvance = record.is_advance || false
+      const extraWork = record.extra_work_payment || 0
+      const type = isAdvance ? "Advance" : (extraWork > 0 ? "Plucking + Work" : "Plucking")
+      
+      return {
+        date: selectedDate,
+        employee_id: record.employee_id,
+        worker_name: record.worker_name,
+        type,
+        kg_plucked: isAdvance ? null : record.kg_plucked,
+        rate_per_kg: isAdvance ? null : record.rate_per_kg,
+        extra_work_payment: extraWork > 0 ? extraWork : null,
+        extra_work_items: record.extra_work_items && record.extra_work_items.length > 0 ? record.extra_work_items : null,
+        total_amount: Math.abs(record.daily_salary),
+        notes: record.notes
+      }
+    })
     
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
     const url = URL.createObjectURL(blob)
@@ -421,14 +439,15 @@ export function DailyPluckingManager() {
                   <td class="number">${isAdvance ? '-' : record.kg_plucked.toFixed(1) + ' kg'}</td>
                   <td class="number">${isAdvance ? '-' : formatCurrency(record.rate_per_kg)}</td>
                   <td class="number">${extraWork > 0 ? formatCurrency(extraWork) + extraWorkDetails : '-'}</td>
-                  <td class="number" style="font-weight: 600;">${isAdvance ? '<span class="advance">-' : ''}${formatCurrency(totalWage)}${isAdvance ? '</span>' : ''}</td>
+                  <td class="number" style="font-weight: 600;${isAdvance ? ' color: #dc2626;' : ''}">${formatCurrency(totalWage)}</td>
                 </tr>
               `}).join('')}
             </tbody>
           </table>
           <div class="summary">
             <p><strong>Total Kg Plucked:</strong> ${stats.totalKg.toFixed(1)} kg</p>
-            <p><strong>Total amount to be paid:</strong> ${formatCurrency(stats.totalPaid)}</p>
+            <p><strong>Paid (Advances):</strong> ${formatCurrency(stats.totalPaid)}</p>
+            <p><strong>To Be Paid (Work):</strong> ${formatCurrency(stats.totalToBePaid)}</p>
           </div>
           <div class="footer">
             <p>TeaOS - Tea Plantation Management System</p>
@@ -688,7 +707,7 @@ export function DailyPluckingManager() {
       </div>
 
       {/* Stats Cards */}
-      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid gap-3 grid-cols-2 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs">
+      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid gap-3 grid-cols-3 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs">
         <Card className="p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Total Kg</span>
@@ -699,10 +718,18 @@ export function DailyPluckingManager() {
 
         <Card className="p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Total to be paid</span>
-            <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Paid (Advances)</span>
+            <MinusCircle className="h-3.5 w-3.5 text-muted-foreground" />
           </div>
           <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalPaid)}</div>
+        </Card>
+
+        <Card className="p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">To Be Paid</span>
+            <Banknote className="h-3.5 w-3.5 text-muted-foreground" />
+          </div>
+          <div className="text-lg font-bold mt-1">{formatCurrency(stats.totalToBePaid)}</div>
         </Card>
       </div>
 
