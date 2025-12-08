@@ -36,8 +36,8 @@ export default function RegisterV1() {
         <div className="flex h-full flex-col items-center justify-center p-12 text-center">
           <div className="space-y-6">
             <div className="space-y-2">
-              <h1 className="text-primary-foreground text-5xl font-light">Welcome!</h1>
-              <p className="text-primary-foreground/80 text-xl">You&apos;re in the right place.</p>
+              <h1 className="text-primary-foreground text-5xl font-light">Your tea journey begins</h1>
+              <p className="text-primary-foreground/80 text-xl">Cultivate success, one leaf at a time</p>
             </div>
           </div>
         </div>

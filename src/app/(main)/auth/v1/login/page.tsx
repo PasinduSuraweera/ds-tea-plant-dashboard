@@ -12,8 +12,8 @@ export default function LoginV1() {
         <div className="flex h-full flex-col items-center justify-center p-12 text-center">
           <div className="space-y-6">
             <div className="space-y-2">
-              <h1 className="text-primary-foreground text-5xl font-light">Hello again</h1>
-              <p className="text-primary-foreground/80 text-xl">Login to continue</p>
+              <h1 className="text-primary-foreground text-5xl font-light">Welcome back</h1>
+              <p className="text-primary-foreground/80 text-xl">Let's get to work</p>
             </div>
           </div>
         </div>
