@@ -72,7 +72,7 @@ export function DailyPluckingManager() {
   const [formData, setFormData] = useState({
     worker_id: '',
     kg_plucked: '',
-    rate_per_kg: '150',
+    rate_per_kg: '40',
     is_advance: false,
     advance_amount: '',
     notes: ''
@@ -275,7 +275,7 @@ export function DailyPluckingManager() {
     setFormData({
       worker_id: '',
       kg_plucked: '',
-      rate_per_kg: '150',
+      rate_per_kg: '40',
       is_advance: false,
       advance_amount: '',
       notes: ''

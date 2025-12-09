@@ -199,11 +199,17 @@ export function ChartAreaInteractive() {
           .gte('date', startDateStr)
           .lte('date', todayStr)
 
+        // Get bonuses for months that overlap with the date range
+        // Extract unique months from the date range
+        const monthsInRange = new Set<string>()
+        for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+          monthsInRange.add(format(d, 'yyyy-MM-01'))
+        }
+        
         const { data: bonusesData } = await supabase
           .from('worker_bonuses')
           .select('amount')
-          .gte('month', startDateStr)
-          .lte('month', todayStr)
+          .in('month', Array.from(monthsInRange))
 
         let earnings = 0
         let advances = 0
