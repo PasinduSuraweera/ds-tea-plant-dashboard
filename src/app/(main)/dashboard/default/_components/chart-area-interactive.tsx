@@ -87,10 +87,17 @@ export function ChartAreaInteractive() {
         // Get daily plucking data (expenses - worker payments calculated from kg * rate + extra work)
         const { data: pluckingData, error: pluckingError } = await supabase
           .from('daily_plucking')
-          .select('date, kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
+          .select('date, kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
           .gte('date', startDateStr)
           .lte('date', todayStr)
           .order('date', { ascending: true });
+
+        // Get bonuses for the time range (need to query for all months in range)
+        const { data: bonusesData } = await supabase
+          .from('worker_bonuses')
+          .select('amount')
+          .gte('month', startDateStr)
+          .lte('month', todayStr);
 
         // Group data by date
         const dailyData: { [key: string]: { revenue: number; expenses: number } } = {};
@@ -105,16 +112,15 @@ export function ChartAreaInteractive() {
           });
         }
 
-        // Process plucking (expenses - calculate from kg * rate + extra work, or advance amount)
+        // Process plucking (expenses - only count actual work, NOT advances)
+        // Advances are prepayments deducted from final salary, not daily expenses
         if (pluckingData) {
           pluckingData.forEach((item) => {
             if (!dailyData[item.date]) {
               dailyData[item.date] = { revenue: 0, expenses: 0 };
             }
-            if (item.is_advance) {
-              // For advances, wage_earned is stored as negative, so take absolute value
-              dailyData[item.date].expenses += Math.abs(item.wage_earned || 0);
-            } else {
+            // Skip advances - they're not daily expenses
+            if (!item.is_advance) {
               const pluckingAmount = (item.kg_plucked || 0) * (item.rate_per_kg || 0);
               const extraWorkAmount = item.extra_work_payment || 0;
               dailyData[item.date].expenses += pluckingAmount + extraWorkAmount;
@@ -150,9 +156,83 @@ export function ChartAreaInteractive() {
     fetchChartData();
   }, [timeRange]);
 
-  const totalRevenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
-  const totalExpenses = chartData.reduce((sum, item) => sum + item.expenses, 0);
-  const totalProfit = totalRevenue - totalExpenses;
+  // State for summary totals
+  const [summaryTotals, setSummaryTotals] = useState({ revenue: 0, expenses: 0, profit: 0 });
+
+  // Fetch summary totals matching stat cards logic (separate from daily chart data)
+  useEffect(() => {
+    async function fetchSummaryTotals() {
+      try {
+        const today = new Date();
+        let startDate: Date;
+        
+        switch (timeRange) {
+          case "7d":
+            startDate = subDays(today, 7);
+            break;
+          case "30d":
+            startDate = subDays(today, 30);
+            break;
+          case "90d":
+            startDate = subDays(today, 90);
+            break;
+          default:
+            startDate = subDays(today, 30);
+        }
+
+        const startDateStr = format(startDate, 'yyyy-MM-dd')
+        const todayStr = format(today, 'yyyy-MM-dd')
+
+        // Revenue from tea sales
+        const { data: salesData } = await supabase
+          .from('tea_sales')
+          .select('total_income')
+          .gte('date', startDateStr)
+          .lte('date', todayStr)
+
+        const revenue = salesData?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
+
+        // Expenses: (Earnings + Bonuses - Advances) matching stat cards
+        const { data: pluckingData } = await supabase
+          .from('daily_plucking')
+          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
+          .gte('date', startDateStr)
+          .lte('date', todayStr)
+
+        const { data: bonusesData } = await supabase
+          .from('worker_bonuses')
+          .select('amount')
+          .gte('month', startDateStr)
+          .lte('month', todayStr)
+
+        let earnings = 0
+        let advances = 0
+        pluckingData?.forEach(p => {
+          if (p.is_advance) {
+            advances += Math.abs(p.wage_earned || 0)
+          } else {
+            const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
+            const extraWorkAmount = p.extra_work_payment || 0
+            earnings += pluckingAmount + extraWorkAmount
+          }
+        })
+
+        const bonusTotal = bonusesData?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const expenses = earnings + bonusTotal - advances
+        const profit = revenue - expenses
+
+        setSummaryTotals({ revenue, expenses, profit })
+      } catch (error) {
+        console.error('Error fetching summary totals:', error)
+      }
+    }
+
+    fetchSummaryTotals()
+  }, [timeRange])
+
+  const totalRevenue = summaryTotals.revenue;
+  const totalExpenses = summaryTotals.expenses;
+  const totalProfit = summaryTotals.profit;
 
   return (
     <Card className="@container/card">
