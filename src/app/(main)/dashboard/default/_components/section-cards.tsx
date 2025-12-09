@@ -73,36 +73,60 @@ export function SectionCards() {
           ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
           : 0
 
-        // === EXPENSES: From daily_plucking (worker payments) ===
+        // === EXPENSES: Calculate from daily_plucking + bonuses - advances ===
+        // Net expenses = (Plucking + Extra Work) + Bonuses - Advances
         const { data: currentPayments } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
+          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
           .gte('date', format(currentMonth, 'yyyy-MM-dd'))
           .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
 
         const { data: lastPayments } = await supabase
           .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
+          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
           .gte('date', format(lastMonth, 'yyyy-MM-dd'))
           .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
 
-        // Calculate expenses: plucking records = kg * rate + extra work, advances = wage_earned (stored as negative)
-        const monthlyExpenses = currentPayments?.reduce((sum, p) => {
+        // Fetch bonuses for current and last month
+        const { data: currentBonuses } = await supabase
+          .from('worker_bonuses')
+          .select('amount')
+          .eq('month', format(currentMonth, 'yyyy-MM-dd'))
+
+        const { data: lastBonuses } = await supabase
+          .from('worker_bonuses')
+          .select('amount')
+          .eq('month', format(lastMonth, 'yyyy-MM-dd'))
+
+        // Calculate current month: earnings + bonuses - advances
+        let currentEarnings = 0
+        let currentAdvances = 0
+        currentPayments?.forEach(p => {
           if (p.is_advance) {
-            return sum + Math.abs(p.wage_earned || 0) // For advances, wage_earned is stored as negative
+            currentAdvances += Math.abs(p.wage_earned || 0)
+          } else {
+            const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
+            const extraWorkAmount = p.extra_work_payment || 0
+            currentEarnings += pluckingAmount + extraWorkAmount
           }
-          const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
-          const extraWorkAmount = p.extra_work_payment || 0
-          return sum + pluckingAmount + extraWorkAmount
-        }, 0) || 0
-        const lastMonthExpenses = lastPayments?.reduce((sum, p) => {
+        })
+        const currentBonusTotal = currentBonuses?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const monthlyExpenses = currentEarnings + currentBonusTotal - currentAdvances
+
+        // Calculate last month: earnings + bonuses - advances
+        let lastEarnings = 0
+        let lastAdvances = 0
+        lastPayments?.forEach(p => {
           if (p.is_advance) {
-            return sum + Math.abs(p.wage_earned || 0)
+            lastAdvances += Math.abs(p.wage_earned || 0)
+          } else {
+            const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
+            const extraWorkAmount = p.extra_work_payment || 0
+            lastEarnings += pluckingAmount + extraWorkAmount
           }
-          const pluckingAmount = (p.kg_plucked || 0) * (p.rate_per_kg || 0)
-          const extraWorkAmount = p.extra_work_payment || 0
-          return sum + pluckingAmount + extraWorkAmount
-        }, 0) || 0
+        })
+        const lastBonusTotal = lastBonuses?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const lastMonthExpenses = lastEarnings + lastBonusTotal - lastAdvances
         const expensesChange = lastMonthExpenses > 0 
           ? ((monthlyExpenses - lastMonthExpenses) / lastMonthExpenses) * 100 
           : 0
