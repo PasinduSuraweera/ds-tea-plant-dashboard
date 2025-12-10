@@ -69,6 +69,7 @@ export function DailyPluckingManager() {
   const [formLoading, setFormLoading] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PluckingRecord | null>(null)
   const [extraWorkItems, setExtraWorkItems] = useState<ExtraWork[]>([])
+  const [detailsRecord, setDetailsRecord] = useState<PluckingRecord | null>(null)
   const [formData, setFormData] = useState({
     worker_id: '',
     kg_plucked: '',
@@ -701,7 +702,10 @@ export function DailyPluckingManager() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="font-semibold cursor-help flex items-center gap-1">
+                  <span 
+                    className="font-semibold cursor-pointer flex items-center gap-1 hover:underline"
+                    onClick={() => setDetailsRecord(row.original)}
+                  >
                     <MinusCircle className="h-3 w-3" />
                     {formatCurrency(Math.abs(amount))}
                   </span>
@@ -722,7 +726,10 @@ export function DailyPluckingManager() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="font-semibold cursor-help">
+                <span 
+                  className="font-semibold cursor-pointer hover:underline"
+                  onClick={() => setDetailsRecord(row.original)}
+                >
                   {formatCurrency(amount)}
                   {hasExtraWork && <span className="text-xs text-muted-foreground ml-1">*</span>}
                 </span>
@@ -1154,6 +1161,83 @@ export function DailyPluckingManager() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Amount Details Dialog */}
+      {detailsRecord && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Payment Details</CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setDetailsRecord(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription className="text-xs">
+                {detailsRecord.worker_name} • {format(new Date(detailsRecord.date + 'T00:00:00'), 'MMM dd, yyyy')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {detailsRecord.is_advance ? (
+                <div className="rounded-md bg-muted/50 border p-3">
+                  <div className="mb-2">
+                    <span className="font-semibold text-sm">Advance Payment</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Amount:</span>
+                    <span className="text-lg font-bold">{formatCurrency(Math.abs(detailsRecord.daily_salary))}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This advance will be deducted from the worker's monthly salary
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Kg Plucked:</span>
+                      <span className="font-medium">{detailsRecord.kg_plucked.toFixed(1)} kg</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Rate per kg:</span>
+                      <span className="font-medium">{formatCurrency(detailsRecord.rate_per_kg)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium border-t pt-2">
+                      <span>Plucking Amount:</span>
+                      <span>{formatCurrency(detailsRecord.kg_plucked * detailsRecord.rate_per_kg)}</span>
+                    </div>
+                  </div>
+                  
+                  {detailsRecord.extra_work_items && detailsRecord.extra_work_items.length > 0 && (
+                    <div className="border-t pt-3 space-y-2">
+                      <p className="text-sm font-semibold">Extra Work:</p>
+                      {detailsRecord.extra_work_items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">• {item.description}</span>
+                          <span className="font-medium">{formatCurrency(item.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="rounded-md bg-primary/10 border border-primary/20 p-3">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold">Total Amount:</span>
+                      <span className="text-lg font-bold">{formatCurrency(Math.abs(detailsRecord.daily_salary))}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              <div className="flex justify-end pt-2">
+                <Button size="sm" onClick={() => setDetailsRecord(null)}>
+                  Close
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
