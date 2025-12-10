@@ -203,60 +203,215 @@ export function DailyPluckingManager() {
     e.preventDefault()
     setFormLoading(true)
 
-    let kg_plucked: number
-    let rate_per_kg: number
-    let daily_salary: number
-    const extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
-
-    if (formData.is_advance) {
-      // Advance payment - store as negative
-      kg_plucked = 0
-      rate_per_kg = 0
-      daily_salary = -Math.abs(parseFloat(formData.advance_amount) || 0)
-    } else {
-      kg_plucked = parseFloat(formData.kg_plucked) || 0
-      rate_per_kg = parseFloat(formData.rate_per_kg) || 0
-      daily_salary = (kg_plucked * rate_per_kg) + extra_work_payment
-    }
-
-    // Store extra work items in notes as JSON
-    const notesData: any = {}
-    if (extraWorkItems.length > 0) {
-      notesData.extra_work = extraWorkItems
-    }
-    if (formData.notes) {
-      notesData.text = formData.notes
-    }
-    const notesString = Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : null
-
-    const recordData = {
-      worker_id: formData.worker_id,
-      date: selectedDate,
-      kg_plucked,
-      rate_per_kg,
-      wage_earned: daily_salary,
-      total_income: daily_salary,
-      extra_work_payment,
-      is_advance: formData.is_advance,
-      notes: notesString
-    }
-
     try {
+      // Check if we need to create both plucking and advance records
+      const hasPluckingData = !editingRecord && parseFloat(formData.kg_plucked) > 0
+      const hasAdvanceData = !editingRecord && parseFloat(formData.advance_amount) > 0
+      const createBothRecords = hasPluckingData && hasAdvanceData
+
       if (editingRecord) {
+        // Edit mode - check if we're changing record type (plucking <-> advance)
+        const wasAdvance = editingRecord.is_advance
+        const isNowAdvance = formData.is_advance
+        const hasPluckingData = parseFloat(formData.kg_plucked) > 0
+        const hasAdvanceData = parseFloat(formData.advance_amount) > 0
+        const typeChanged = wasAdvance !== isNowAdvance
+        const addingOppositeType = (wasAdvance && hasPluckingData) || (!wasAdvance && hasAdvanceData)
+
+        if (typeChanged && addingOppositeType) {
+          // User changed from plucking to advance or vice versa, but has data for both
+          // Create a new record for the opposite type while keeping the existing one
+          let new_kg_plucked: number
+          let new_rate_per_kg: number
+          let new_daily_salary: number
+          let new_extra_work_payment = 0
+          let new_is_advance = false
+          let newNotesString: string | null = null
+
+          if (isNowAdvance) {
+            // Currently set to advance mode, create advance record
+            new_kg_plucked = 0
+            new_rate_per_kg = 0
+            new_daily_salary = -Math.abs(parseFloat(formData.advance_amount) || 0)
+            new_is_advance = true
+            newNotesString = formData.notes ? JSON.stringify({ text: formData.notes }) : null
+          } else {
+            // Currently set to plucking mode, create plucking record
+            new_kg_plucked = parseFloat(formData.kg_plucked) || 0
+            new_rate_per_kg = parseFloat(formData.rate_per_kg) || 0
+            new_extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
+            new_daily_salary = (new_kg_plucked * new_rate_per_kg) + new_extra_work_payment
+            new_is_advance = false
+
+            const notesData: any = {}
+            if (extraWorkItems.length > 0) {
+              notesData.extra_work = extraWorkItems
+            }
+            if (formData.notes) {
+              notesData.text = formData.notes
+            }
+            newNotesString = Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : null
+          }
+
+          const newRecordData = {
+            worker_id: formData.worker_id,
+            date: selectedDate,
+            kg_plucked: new_kg_plucked,
+            rate_per_kg: new_rate_per_kg,
+            wage_earned: new_daily_salary,
+            total_income: new_daily_salary,
+            extra_work_payment: new_extra_work_payment,
+            is_advance: new_is_advance,
+            notes: newNotesString
+          }
+
+          const { error } = await supabase
+            .from('daily_plucking')
+            .insert(newRecordData)
+
+          if (error) throw error
+          toast.success(`${new_is_advance ? 'Advance' : 'Plucking'} record added while keeping existing ${wasAdvance ? 'advance' : 'plucking'} record`)
+        } else {
+          // Normal edit - just update the existing record
+          let kg_plucked: number
+          let rate_per_kg: number
+          let daily_salary: number
+          const extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
+
+          if (formData.is_advance) {
+            kg_plucked = 0
+            rate_per_kg = 0
+            daily_salary = -Math.abs(parseFloat(formData.advance_amount) || 0)
+          } else {
+            kg_plucked = parseFloat(formData.kg_plucked) || 0
+            rate_per_kg = parseFloat(formData.rate_per_kg) || 0
+            daily_salary = (kg_plucked * rate_per_kg) + extra_work_payment
+          }
+
+          const notesData: any = {}
+          if (extraWorkItems.length > 0) {
+            notesData.extra_work = extraWorkItems
+          }
+          if (formData.notes) {
+            notesData.text = formData.notes
+          }
+          const notesString = Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : null
+
+          const recordData = {
+            worker_id: formData.worker_id,
+            date: selectedDate,
+            kg_plucked,
+            rate_per_kg,
+            wage_earned: daily_salary,
+            total_income: daily_salary,
+            extra_work_payment,
+            is_advance: formData.is_advance,
+            notes: notesString
+          }
+
+          const { error } = await supabase
+            .from('daily_plucking')
+            .update(recordData)
+            .eq('id', editingRecord.id)
+
+          if (error) throw error
+          toast.success("Record updated successfully")
+        }
+      } else if (createBothRecords) {
+        // Create both plucking and advance records
+        const recordsToInsert = []
+
+        // 1. Plucking record
+        const kg_plucked = parseFloat(formData.kg_plucked)
+        const rate_per_kg = parseFloat(formData.rate_per_kg)
+        const extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
+        const plucking_salary = (kg_plucked * rate_per_kg) + extra_work_payment
+
+        const pluckingNotesData: any = {}
+        if (extraWorkItems.length > 0) {
+          pluckingNotesData.extra_work = extraWorkItems
+        }
+        if (formData.notes) {
+          pluckingNotesData.text = formData.notes
+        }
+        const pluckingNotesString = Object.keys(pluckingNotesData).length > 0 ? JSON.stringify(pluckingNotesData) : null
+
+        recordsToInsert.push({
+          worker_id: formData.worker_id,
+          date: selectedDate,
+          kg_plucked,
+          rate_per_kg,
+          wage_earned: plucking_salary,
+          total_income: plucking_salary,
+          extra_work_payment,
+          is_advance: false,
+          notes: pluckingNotesString
+        })
+
+        // 2. Advance record
+        const advance_amount = -Math.abs(parseFloat(formData.advance_amount))
+        recordsToInsert.push({
+          worker_id: formData.worker_id,
+          date: selectedDate,
+          kg_plucked: 0,
+          rate_per_kg: 0,
+          wage_earned: advance_amount,
+          total_income: advance_amount,
+          extra_work_payment: 0,
+          is_advance: true,
+          notes: formData.notes ? JSON.stringify({ text: formData.notes }) : null
+        })
+
         const { error } = await supabase
           .from('daily_plucking')
-          .update(recordData)
-          .eq('id', editingRecord.id)
+          .insert(recordsToInsert)
 
         if (error) throw error
-        toast.success("Record updated successfully")
+        toast.success("Plucking and advance records added successfully")
       } else {
+        // Create single record (either plucking or advance)
+        let kg_plucked: number
+        let rate_per_kg: number
+        let daily_salary: number
+        const extra_work_payment = extraWorkItems.reduce((sum, item) => sum + item.amount, 0)
+
+        if (formData.is_advance) {
+          kg_plucked = 0
+          rate_per_kg = 0
+          daily_salary = -Math.abs(parseFloat(formData.advance_amount) || 0)
+        } else {
+          kg_plucked = parseFloat(formData.kg_plucked) || 0
+          rate_per_kg = parseFloat(formData.rate_per_kg) || 0
+          daily_salary = (kg_plucked * rate_per_kg) + extra_work_payment
+        }
+
+        const notesData: any = {}
+        if (extraWorkItems.length > 0) {
+          notesData.extra_work = extraWorkItems
+        }
+        if (formData.notes) {
+          notesData.text = formData.notes
+        }
+        const notesString = Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : null
+
+        const recordData = {
+          worker_id: formData.worker_id,
+          date: selectedDate,
+          kg_plucked,
+          rate_per_kg,
+          wage_earned: daily_salary,
+          total_income: daily_salary,
+          extra_work_payment,
+          is_advance: formData.is_advance,
+          notes: notesString
+        }
+
         const { error } = await supabase
           .from('daily_plucking')
           .insert(recordData)
 
         if (error) throw error
-        toast.success("Record added successfully")
+        toast.success(`${formData.is_advance ? 'Advance' : 'Plucking'} record added successfully`)
       }
 
       setShowForm(false)
@@ -300,8 +455,10 @@ export function DailyPluckingManager() {
     const totalKg = records.filter(r => !r.is_advance).reduce((sum, r) => sum + r.kg_plucked, 0)
     // Paid = advances given (absolute value)
     const totalPaid = records.filter(r => r.is_advance).reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
-    // To be paid = plucking + extra work (no advances)
-    const totalToBePaid = records.filter(r => !r.is_advance).reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
+    // Work earnings = plucking + extra work (no advances)
+    const workEarnings = records.filter(r => !r.is_advance).reduce((sum, r) => sum + Math.abs(r.daily_salary), 0)
+    // To be paid = work earnings - advances already paid
+    const totalToBePaid = workEarnings - totalPaid
 
     return { totalKg, totalPaid, totalToBePaid }
   }, [records])
