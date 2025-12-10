@@ -61,16 +61,16 @@ export function ChartAreaInteractive() {
         
         switch (timeRange) {
           case "7d":
-            startDate = subDays(today, 7);
+            startDate = subDays(today, 6);
             break;
           case "30d":
-            startDate = subDays(today, 30);
+            startDate = subDays(today, 29);
             break;
           case "90d":
-            startDate = subDays(today, 90);
+            startDate = subDays(today, 89);
             break;
           default:
-            startDate = subDays(today, 30);
+            startDate = subDays(today, 29);
         }
 
         const startDateStr = format(startDate, 'yyyy-MM-dd')
@@ -168,16 +168,16 @@ export function ChartAreaInteractive() {
         
         switch (timeRange) {
           case "7d":
-            startDate = subDays(today, 7);
+            startDate = subDays(today, 6);
             break;
           case "30d":
-            startDate = subDays(today, 30);
+            startDate = subDays(today, 29);
             break;
           case "90d":
-            startDate = subDays(today, 90);
+            startDate = subDays(today, 89);
             break;
           default:
-            startDate = subDays(today, 30);
+            startDate = subDays(today, 29);
         }
 
         const startDateStr = format(startDate, 'yyyy-MM-dd')
