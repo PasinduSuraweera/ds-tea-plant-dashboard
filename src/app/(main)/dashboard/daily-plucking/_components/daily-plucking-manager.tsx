@@ -1224,7 +1224,7 @@ export function DailyPluckingManager() {
                     </div>
                   )}
                   
-                  <div className="rounded-md bg-primary/10 border border-primary/20 p-3">
+                  <div className="rounded-md bg-muted/50 border p-3">
                     <div className="flex justify-between items-center">
                       <span className="font-semibold">Total Amount:</span>
                       <span className="text-lg font-bold">{formatCurrency(Math.abs(detailsRecord.daily_salary))}</span>
