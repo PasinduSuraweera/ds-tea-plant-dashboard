@@ -244,14 +244,6 @@ export function ChartAreaInteractive() {
     <Card className="@container/card">
       <CardHeader>
         <CardTitle>Financial Overview</CardTitle>
-        <CardDescription>
-          <span className="hidden @[540px]/card:block">
-            Revenue: {formatCurrency(totalRevenue)} • Expenses: {formatCurrency(totalExpenses)} • Profit: {formatCurrency(totalProfit)}
-          </span>
-          <span className="@[540px]/card:hidden">
-            Profit: {formatCurrency(totalProfit)}
-          </span>
-        </CardDescription>
         <CardAction>
           <ToggleGroup
             type="single"
