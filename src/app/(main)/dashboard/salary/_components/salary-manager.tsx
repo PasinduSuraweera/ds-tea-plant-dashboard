@@ -91,7 +91,15 @@ export function SalaryManager() {
       // Fetch bonuses for this month
       const { data: bonuses, error: bonusError } = await supabase
         .from('worker_bonuses')
-        .select('*')
+        .select(`
+          *,
+          workers!inner (
+            id,
+            employee_id,
+            first_name,
+            last_name
+          )
+        `)
         .eq('month', monthStart)
 
       // Create bonus map (ignore error if table doesn't exist)
@@ -162,6 +170,35 @@ export function SalaryManager() {
           workerDates.get(workerId)!.add(record.date)
         }
       })
+
+      // Add workers who have bonuses but no plucking records
+      if (!bonusError && bonuses) {
+        bonuses.forEach((bonus: any) => {
+          const workerId = bonus.worker_id
+          if (!workerMap.has(workerId)) {
+            const worker = bonus.workers
+            const workerName = `${worker.first_name}${worker.last_name ? ' ' + worker.last_name : ''}`
+            const paymentId = paymentMap.get(workerId)
+            
+            workerMap.set(workerId, {
+              worker_id: workerId,
+              employee_id: worker.employee_id,
+              worker_name: workerName,
+              total_kg: 0,
+              total_earned: 0,
+              bonus: bonus.amount || 0,
+              bonus_id: bonus.id || null,
+              total_advance: 0,
+              net_salary: 0,
+              days_worked: 0,
+              avg_kg_per_day: 0,
+              is_paid: !!paymentId,
+              payment_id: paymentId || null
+            })
+            workerDates.set(workerId, new Set<string>())
+          }
+        })
+      }
 
       // Calculate net salary and averages, using unique date count for days worked
       const salaryList = Array.from(workerMap.values()).map(w => {
