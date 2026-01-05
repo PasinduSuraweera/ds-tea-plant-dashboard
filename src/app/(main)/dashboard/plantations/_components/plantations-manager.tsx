@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Search, ImageIcon, X, Edit, MapPin, Calendar, Maximize2 } from "lucide-react"
+import { Plus, Search, ImageIcon, X, Edit, MapPin, Calendar, Maximize2, Loader2 } from "lucide-react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,8 +9,12 @@ import { Card } from "@/components/ui/card"
 import { supabase } from "@/lib/supabase"
 import { Plantation } from "@/types/database"
 import { PlantationForm } from "./plantation-form"
+import { useOrganization } from "@/contexts/organization-context"
 
 export function PlantationsManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [plantations, setPlantations] = useState<Plantation[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -18,20 +22,40 @@ export function PlantationsManager() {
   const [showForm, setShowForm] = useState(false)
 
   useEffect(() => {
-    fetchPlantations()
-  }, [])
+    if (orgId) {
+      fetchPlantations()
+    }
+  }, [orgId])
 
   const fetchPlantations = async () => {
+    if (!orgId) return
     try {
-      const { data, error } = await supabase
+      // Try with organization_id filter first
+      let query = supabase
         .from('plantations')
         .select('*')
         .order('name')
 
-      if (error) throw error
+      const { data, error } = await query.eq('organization_id', orgId)
+
+      if (error) {
+        // If organization_id column doesn't exist, fetch without filter
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          console.log('organization_id column not found - run the database migration')
+          const { data: allData, error: fallbackError } = await supabase
+            .from('plantations')
+            .select('*')
+            .order('name')
+          
+          if (fallbackError) throw fallbackError
+          setPlantations(allData || [])
+          return
+        }
+        throw error
+      }
       setPlantations(data || [])
-    } catch (error) {
-      console.error('Error fetching plantations:', error)
+    } catch (error: any) {
+      console.error('Error fetching plantations:', error?.message || error)
     } finally {
       setLoading(false)
     }
@@ -90,6 +114,15 @@ export function PlantationsManager() {
     plantation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     plantation.location.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading plantations...</div>

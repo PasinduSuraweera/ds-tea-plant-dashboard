@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useOrganization } from "@/contexts/organization-context"
 import { supabase } from "@/lib/supabase"
 import { Plantation } from "@/types/database"
 import { toast } from "sonner"
@@ -32,6 +33,9 @@ interface PlantationFormProps {
 }
 
 export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
+  const { currentOrganization } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(plantation?.image_url || null)
@@ -134,7 +138,7 @@ export function PlantationForm({ plantation, onClose }: PlantationFormProps) {
         // Create new plantation
         const { error } = await supabase
           .from('plantations')
-          .insert([plantationData])
+          .insert([{ ...plantationData, organization_id: orgId }])
         
         if (error) throw error
         toast.success("Plantation created successfully")

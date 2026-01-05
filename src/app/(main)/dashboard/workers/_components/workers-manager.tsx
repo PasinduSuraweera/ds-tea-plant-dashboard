@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Plus, Search, Users, Edit, Trash2, X, Loader2, Phone, CalendarDays, UserCircle } from "lucide-react"
+import { useOrganization } from "@/contexts/organization-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -58,6 +59,9 @@ interface Worker {
 }
 
 export function WorkersManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [workers, setWorkers] = useState<Worker[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -73,20 +77,38 @@ export function WorkersManager() {
   })
 
   useEffect(() => {
-    fetchWorkers()
-  }, [])
+    if (orgId) {
+      fetchWorkers()
+    }
+  }, [orgId])
 
   async function fetchWorkers() {
+    if (!orgId) return
     try {
       const { data, error } = await supabase
         .from('workers')
         .select('id, employee_id, first_name, last_name, phone, hire_date, created_at')
+        .eq('organization_id', orgId)
         .order('first_name')
 
-      if (error) throw error
+      if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          console.warn('organization_id column not found - run the database migration')
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('workers')
+            .select('id, employee_id, first_name, last_name, phone, hire_date, created_at')
+            .order('first_name')
+          
+          if (fallbackError) throw fallbackError
+          setWorkers(fallbackData || [])
+          return
+        }
+        throw error
+      }
       setWorkers(data || [])
-    } catch (error) {
-      console.error('Error fetching workers:', error)
+    } catch (error: any) {
+      console.error('Error fetching workers:', error?.message || error)
       toast.error("Failed to load workers")
     } finally {
       setLoading(false)
@@ -150,7 +172,7 @@ export function WorkersManager() {
       } else {
         const { error } = await supabase
           .from('workers')
-          .insert(workerData)
+          .insert({ ...workerData, organization_id: orgId })
         
         if (error) throw error
         toast.success("Worker added successfully")
@@ -320,6 +342,15 @@ export function WorkersManager() {
     columns,
     getRowId: (row) => row.id,
   })
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

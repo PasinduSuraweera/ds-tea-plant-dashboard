@@ -17,6 +17,7 @@ import { formatCurrency } from "@/lib/utils"
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, isWithinInterval, parseISO } from "date-fns"
 import { formatInTimeZone } from "date-fns-tz"
 import { toast } from "sonner"
+import { useOrganization } from "@/contexts/organization-context"
 
 interface TeaSale {
   id: string
@@ -56,6 +57,9 @@ function formatSLDate(dateStr: string, formatStr: string = 'MMM dd, yyyy') {
 }
 
 export function TeaSalesManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [teaSales, setTeaSales] = useState<TeaSale[]>([])
   const [factoryRates, setFactoryRates] = useState<FactoryRate[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,21 +80,36 @@ export function TeaSalesManager() {
   })
 
   useEffect(() => {
-    fetchTeaSalesData()
-    fetchFactoryRates()
-  }, [])
+    if (orgId) {
+      fetchTeaSalesData()
+      fetchFactoryRates()
+    }
+  }, [orgId])
 
   async function fetchTeaSalesData() {
+    if (!orgId) return
     try {
       const { data, error } = await supabase
         .from('tea_sales')
         .select('*')
+        .eq('organization_id', orgId)
         .order('date', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData } = await supabase
+            .from('tea_sales')
+            .select('*')
+            .order('date', { ascending: false })
+          setTeaSales(fallbackData || [])
+          return
+        }
+        throw error
+      }
       setTeaSales(data || [])
-    } catch (error) {
-      console.error('Error fetching tea sales:', error)
+    } catch (error: any) {
+      console.error('Error fetching tea sales:', error?.message || error)
       toast.error("Failed to load tea sales")
     } finally {
       setLoading(false)
@@ -98,16 +117,29 @@ export function TeaSalesManager() {
   }
 
   async function fetchFactoryRates() {
+    if (!orgId) return
     try {
       const { data, error } = await supabase
         .from('factory_rates')
         .select('id, factory_name, current_rate')
+        .eq('organization_id', orgId)
         .order('factory_name')
 
-      if (error) throw error
+      if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData } = await supabase
+            .from('factory_rates')
+            .select('id, factory_name, current_rate')
+            .order('factory_name')
+          setFactoryRates(fallbackData || [])
+          return
+        }
+        throw error
+      }
       setFactoryRates(data || [])
-    } catch (error) {
-      console.error('Error fetching factory rates:', error)
+    } catch (error: any) {
+      console.error('Error fetching factory rates:', error?.message || error)
     }
   }
 
@@ -199,7 +231,8 @@ export function TeaSalesManager() {
         .insert({
           factory_name: factoryName,
           current_rate: rate,
-          effective_date: effectiveDate
+          effective_date: effectiveDate,
+          organization_id: orgId
         })
         .select()
         .single()
@@ -256,7 +289,7 @@ export function TeaSalesManager() {
       } else {
         const { data, error } = await supabase
           .from('tea_sales')
-          .insert(saleData)
+          .insert({ ...saleData, organization_id: orgId })
           .select()
           .single()
         
@@ -600,6 +633,15 @@ export function TeaSalesManager() {
 
     printWindow.document.write(html)
     printWindow.document.close()
+  }
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
   }
 
   if (loading) {

@@ -1,9 +1,10 @@
 "use client"
 
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useOrganization } from "@/contexts/organization-context";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
 import { startOfMonth, endOfMonth, subMonths, subDays, format } from "date-fns";
@@ -31,6 +32,9 @@ interface DashboardStats {
 }
 
 export function SectionCards() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [stats, setStats] = useState<DashboardStats>({
     monthlyRevenue: 0,
     revenueChange: 0,
@@ -44,7 +48,12 @@ export function SectionCards() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (orgId) {
+      fetchStats()
+    }
+    
     async function fetchStats() {
+      if (!orgId) return
       try {
         const today = new Date()
         const todayStr = getSLDate()
@@ -54,54 +63,114 @@ export function SectionCards() {
         const lastMonth = subMonths(currentMonth, 1)
         const lastMonthEnd = endOfMonth(lastMonth)
 
+        // Helper function to query with org fallback
+        async function queryWithFallback<T>(
+          table: string,
+          select: string,
+          filters: { [key: string]: any },
+          dateRange?: { from: string; to: string; field: string }
+        ): Promise<T[]> {
+          let query = supabase.from(table).select(select).eq('organization_id', orgId)
+          
+          Object.entries(filters).forEach(([key, value]) => {
+            query = query.eq(key, value)
+          })
+          
+          if (dateRange) {
+            query = query.gte(dateRange.field, dateRange.from).lte(dateRange.field, dateRange.to)
+          }
+          
+          const { data, error } = await query
+          
+          if (error) {
+            if (error.message?.includes('organization_id') || error.code === '42703') {
+              // Fallback without org filter
+              let fallbackQuery = supabase.from(table).select(select)
+              Object.entries(filters).forEach(([key, value]) => {
+                fallbackQuery = fallbackQuery.eq(key, value)
+              })
+              if (dateRange) {
+                fallbackQuery = fallbackQuery.gte(dateRange.field, dateRange.from).lte(dateRange.field, dateRange.to)
+              }
+              const { data: fallbackData } = await fallbackQuery
+              return (fallbackData || []) as T[]
+            }
+            if (error.message?.includes('does not exist')) {
+              return []
+            }
+            throw error
+          }
+          
+          return (data || []) as T[]
+        }
+
         // === REVENUE: From tea_sales ===
-        const { data: currentSales } = await supabase
-          .from('tea_sales')
-          .select('total_income')
-          .gte('date', format(currentMonth, 'yyyy-MM-dd'))
-          .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
+        const currentSales = await queryWithFallback<{ total_income: number }>(
+          'tea_sales',
+          'total_income',
+          {},
+          { from: format(currentMonth, 'yyyy-MM-dd'), to: format(currentMonthEnd, 'yyyy-MM-dd'), field: 'date' }
+        )
 
-        const { data: lastSales } = await supabase
-          .from('tea_sales')
-          .select('total_income')
-          .gte('date', format(lastMonth, 'yyyy-MM-dd'))
-          .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
+        const lastSales = await queryWithFallback<{ total_income: number }>(
+          'tea_sales',
+          'total_income',
+          {},
+          { from: format(lastMonth, 'yyyy-MM-dd'), to: format(lastMonthEnd, 'yyyy-MM-dd'), field: 'date' }
+        )
 
-        const monthlyRevenue = currentSales?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
-        const lastMonthRevenue = lastSales?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
+        const monthlyRevenue = currentSales.reduce((sum, s) => sum + (s.total_income || 0), 0)
+        const lastMonthRevenue = lastSales.reduce((sum, s) => sum + (s.total_income || 0), 0)
         const revenueChange = lastMonthRevenue > 0 
           ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
           : 0
 
         // === EXPENSES: Calculate from daily_plucking + bonuses - advances ===
-        // Net expenses = (Plucking + Extra Work) + Bonuses - Advances
-        const { data: currentPayments } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
-          .gte('date', format(currentMonth, 'yyyy-MM-dd'))
-          .lte('date', format(currentMonthEnd, 'yyyy-MM-dd'))
+        const currentPayments = await queryWithFallback<{
+          kg_plucked: number
+          rate_per_kg: number
+          is_advance: boolean
+          extra_work_payment: number
+          wage_earned: number
+          worker_id: string
+        }>(
+          'daily_plucking',
+          'kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id',
+          {},
+          { from: format(currentMonth, 'yyyy-MM-dd'), to: format(currentMonthEnd, 'yyyy-MM-dd'), field: 'date' }
+        )
 
-        const { data: lastPayments } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
-          .gte('date', format(lastMonth, 'yyyy-MM-dd'))
-          .lte('date', format(lastMonthEnd, 'yyyy-MM-dd'))
+        const lastPayments = await queryWithFallback<{
+          kg_plucked: number
+          rate_per_kg: number
+          is_advance: boolean
+          extra_work_payment: number
+          wage_earned: number
+          worker_id: string
+        }>(
+          'daily_plucking',
+          'kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id',
+          {},
+          { from: format(lastMonth, 'yyyy-MM-dd'), to: format(lastMonthEnd, 'yyyy-MM-dd'), field: 'date' }
+        )
 
         // Fetch bonuses for current and last month
-        const { data: currentBonuses } = await supabase
-          .from('worker_bonuses')
-          .select('amount')
-          .eq('month', format(currentMonth, 'yyyy-MM-dd'))
+        const currentBonuses = await queryWithFallback<{ amount: number }>(
+          'worker_bonuses',
+          'amount',
+          { month: format(currentMonth, 'yyyy-MM-dd') }
+        )
 
-        const { data: lastBonuses } = await supabase
-          .from('worker_bonuses')
-          .select('amount')
-          .eq('month', format(lastMonth, 'yyyy-MM-dd'))
+        const lastBonuses = await queryWithFallback<{ amount: number }>(
+          'worker_bonuses',
+          'amount',
+          { month: format(lastMonth, 'yyyy-MM-dd') }
+        )
 
         // Calculate current month: earnings + bonuses - advances
         let currentEarnings = 0
         let currentAdvances = 0
-        currentPayments?.forEach(p => {
+        currentPayments.forEach(p => {
           if (p.is_advance) {
             currentAdvances += Math.abs(p.wage_earned || 0)
           } else {
@@ -110,13 +179,13 @@ export function SectionCards() {
             currentEarnings += pluckingAmount + extraWorkAmount
           }
         })
-        const currentBonusTotal = currentBonuses?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const currentBonusTotal = currentBonuses.reduce((sum, b) => sum + (b.amount || 0), 0)
         const monthlyExpenses = currentEarnings + currentBonusTotal - currentAdvances
 
         // Calculate last month: earnings + bonuses - advances
         let lastEarnings = 0
         let lastAdvances = 0
-        lastPayments?.forEach(p => {
+        lastPayments.forEach(p => {
           if (p.is_advance) {
             lastAdvances += Math.abs(p.wage_earned || 0)
           } else {
@@ -125,7 +194,7 @@ export function SectionCards() {
             lastEarnings += pluckingAmount + extraWorkAmount
           }
         })
-        const lastBonusTotal = lastBonuses?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const lastBonusTotal = lastBonuses.reduce((sum, b) => sum + (b.amount || 0), 0)
         const lastMonthExpenses = lastEarnings + lastBonusTotal - lastAdvances
         const expensesChange = lastMonthExpenses > 0 
           ? ((monthlyExpenses - lastMonthExpenses) / lastMonthExpenses) * 100 
@@ -139,23 +208,25 @@ export function SectionCards() {
           : 0
 
         // === TODAY'S HARVEST ===
-        const { data: todaysData } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, is_advance')
-          .eq('date', todayStr)
+        const todaysData = await queryWithFallback<{ kg_plucked: number; is_advance: boolean }>(
+          'daily_plucking',
+          'kg_plucked, is_advance',
+          { date: todayStr }
+        )
 
-        const { data: yesterdaysData } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, is_advance')
-          .eq('date', yesterdayStr)
+        const yesterdaysData = await queryWithFallback<{ kg_plucked: number; is_advance: boolean }>(
+          'daily_plucking',
+          'kg_plucked, is_advance',
+          { date: yesterdayStr }
+        )
 
         // Only count plucking records (not advances)
         const todaysHarvest = todaysData
-          ?.filter(d => !d.is_advance)
-          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0) || 0
+          .filter(d => !d.is_advance)
+          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0)
         const yesterdaysHarvest = yesterdaysData
-          ?.filter(d => !d.is_advance)
-          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0) || 0
+          .filter(d => !d.is_advance)
+          .reduce((sum, d) => sum + (d.kg_plucked || 0), 0)
         const harvestChange = yesterdaysHarvest > 0 
           ? ((todaysHarvest - yesterdaysHarvest) / yesterdaysHarvest) * 100 
           : 0
@@ -170,15 +241,28 @@ export function SectionCards() {
           todaysHarvest,
           harvestChange,
         })
-      } catch (error) {
-        console.error('Error fetching dashboard stats:', error)
+      } catch (error: any) {
+        console.error('Error fetching dashboard stats:', error?.message || error)
       } finally {
         setLoading(false)
       }
     }
+  }, [orgId])
 
-    fetchStats()
-  }, [])
+  if (orgLoading || !orgId) {
+    return (
+      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Card key={i} className="@container/card animate-pulse">
+            <CardHeader>
+              <div className="h-4 bg-muted rounded w-20"></div>
+              <div className="h-8 bg-muted rounded w-24 mt-2"></div>
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+    )
+  }
 
   if (loading) {
     return (

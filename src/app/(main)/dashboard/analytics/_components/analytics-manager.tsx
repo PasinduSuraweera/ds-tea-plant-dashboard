@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { BarChart, TrendingUp, Users, Leaf, DollarSign } from "lucide-react"
+import { BarChart, TrendingUp, Users, Leaf, DollarSign, Loader2 } from "lucide-react"
 import { Bar, BarChart as RechartsBarChart, XAxis, YAxis, CartesianGrid, Line, LineChart, ResponsiveContainer } from "recharts"
 import {
   ChartConfig,
@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/lib/supabase"
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { formatCurrency } from "@/lib/utils"
+import { useOrganization } from "@/contexts/organization-context"
 
 interface AnalyticsStats {
   totalPlantations: number
@@ -63,6 +64,9 @@ const revenueConfig = {
 } satisfies ChartConfig
 
 export function AnalyticsManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [stats, setStats] = useState<AnalyticsStats>({
     totalPlantations: 0,
     totalWorkers: 0,
@@ -74,29 +78,35 @@ export function AnalyticsManager() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!orgId) return
+    
     async function fetchAnalyticsData() {
-      try {
-        const currentMonth = new Date()
-        const startOfCurrentMonth = startOfMonth(currentMonth)
-        const endOfCurrentMonth = endOfMonth(currentMonth)
+    if (!orgId) return
+    try {
+      const currentMonth = new Date()
+      const startOfCurrentMonth = startOfMonth(currentMonth)
+      const endOfCurrentMonth = endOfMonth(currentMonth)
 
-        // Get total plantations
-        const { count: plantationsCount } = await supabase
-          .from('plantations')
-          .select('*', { count: 'exact', head: true })
+      // Get total plantations
+      const { count: plantationsCount } = await supabase
+        .from('plantations')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
 
-        // Get total workers
-        const { count: workersCount } = await supabase
-          .from('workers')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'active')
+      // Get total workers
+      const { count: workersCount } = await supabase
+        .from('workers')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .eq('status', 'active')
 
-        // Get current month harvest and revenue
-        const { data: currentMonthData, error: currentMonthError } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, total_income')
-          .gte('date', format(startOfCurrentMonth, 'yyyy-MM-dd'))
-          .lte('date', format(endOfCurrentMonth, 'yyyy-MM-dd'))
+      // Get current month harvest and revenue
+      const { data: currentMonthData, error: currentMonthError } = await supabase
+        .from('daily_plucking')
+        .select('kg_plucked, total_income')
+        .eq('organization_id', orgId)
+        .gte('date', format(startOfCurrentMonth, 'yyyy-MM-dd'))
+        .lte('date', format(endOfCurrentMonth, 'yyyy-MM-dd'))
 
         // Handle missing table gracefully
         if (currentMonthError?.message?.includes('relation "daily_plucking" does not exist')) {
@@ -200,7 +210,28 @@ export function AnalyticsManager() {
     }
 
     fetchAnalyticsData()
-  }, [])
+  }, [orgId])
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <div className="h-4 w-20 bg-muted animate-pulse rounded" />
+                <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-8 w-16 bg-muted animate-pulse rounded mb-2" />
+                <div className="h-3 w-24 bg-muted animate-pulse rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

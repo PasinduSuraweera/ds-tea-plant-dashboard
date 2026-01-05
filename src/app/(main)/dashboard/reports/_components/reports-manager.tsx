@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase"
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { toast } from "sonner"
 import { formatCurrency } from "@/lib/utils"
+import { useOrganization } from "@/contexts/organization-context"
 
 interface ReportType {
   id: string
@@ -53,6 +54,9 @@ const REPORT_TYPES: ReportType[] = [
 ]
 
 export function ReportsManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [selectedReport, setSelectedReport] = useState<string>("")
   const [dateFrom, setDateFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [dateTo, setDateTo] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'))
@@ -79,6 +83,7 @@ export function ReportsManager() {
               *,
               workers (first_name, last_name, employee_id)
             `)
+            .eq('organization_id', orgId)
             .gte('date', dateFrom)
             .lte('date', dateTo)
             .order('date', { ascending: false })
@@ -93,6 +98,7 @@ export function ReportsManager() {
               *,
               workers (first_name, last_name, employee_id)
             `)
+            .eq('organization_id', orgId)
             .gte('date', dateFrom)
             .lte('date', dateTo)
           reportData = salaryRecords
@@ -103,6 +109,7 @@ export function ReportsManager() {
           const { data: workers } = await supabase
             .from('workers')
             .select('*')
+            .eq('organization_id', orgId)
             .order('first_name')
           reportData = workers
           break
@@ -112,6 +119,7 @@ export function ReportsManager() {
           const { data: sales } = await supabase
             .from('tea_sales')
             .select('*')
+            .eq('organization_id', orgId)
             .gte('date', dateFrom)
             .lte('date', dateTo)
             .order('date', { ascending: false })
@@ -123,12 +131,14 @@ export function ReportsManager() {
           const { data: salesData } = await supabase
             .from('tea_sales')
             .select('total_income')
+            .eq('organization_id', orgId)
             .gte('date', dateFrom)
             .lte('date', dateTo)
           
           const { data: pluckingData } = await supabase
             .from('daily_plucking')
             .select('kg_plucked, rate_per_kg')
+            .eq('organization_id', orgId)
             .gte('date', dateFrom)
             .lte('date', dateTo)
           
@@ -407,6 +417,15 @@ export function ReportsManager() {
         setDateTo(format(endOfMonth(today), 'yyyy-MM-dd'))
         break
     }
+  }
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
   }
 
   return (

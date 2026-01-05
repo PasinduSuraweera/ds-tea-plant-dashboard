@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/lib/supabase"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday } from "date-fns"
 import { toast } from "sonner"
+import { useOrganization } from "@/contexts/organization-context"
 
 interface ScheduleEvent {
   id: string
@@ -33,6 +34,9 @@ const EVENT_TYPES = [
 ]
 
 export function SchedulerManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [events, setEvents] = useState<ScheduleEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -50,10 +54,13 @@ export function SchedulerManager() {
   const [formType, setFormType] = useState<string>("task")
 
   useEffect(() => {
-    fetchEvents()
-  }, [currentMonth])
+    if (orgId) {
+      fetchEvents()
+    }
+  }, [currentMonth, orgId])
 
   async function fetchEvents() {
+    if (!orgId) return
     setLoading(true)
     try {
       const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
@@ -62,12 +69,33 @@ export function SchedulerManager() {
       const { data, error } = await supabase
         .from('schedule_events')
         .select('*')
+        .eq('organization_id', orgId)
         .gte('event_date', monthStart)
         .lte('event_date', monthEnd)
         .order('event_date', { ascending: true })
         .order('event_time', { ascending: true })
 
       if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('schedule_events')
+            .select('*')
+            .gte('event_date', monthStart)
+            .lte('event_date', monthEnd)
+            .order('event_date', { ascending: true })
+            .order('event_time', { ascending: true })
+          
+          if (fallbackError) {
+            if (fallbackError.message?.includes('does not exist')) {
+              setEvents([])
+              return
+            }
+            throw fallbackError
+          }
+          setEvents(fallbackData || [])
+          return
+        }
         if (error.message?.includes('does not exist')) {
           // Table doesn't exist yet
           setEvents([])
@@ -136,7 +164,7 @@ export function SchedulerManager() {
       } else {
         const { error } = await supabase
           .from('schedule_events')
-          .insert([eventData])
+          .insert([{ ...eventData, organization_id: orgId }])
 
         if (error) throw error
         toast.success("Event created")
@@ -223,6 +251,15 @@ export function SchedulerManager() {
     const dateKey = format(selectedDate, 'yyyy-MM-dd')
     return eventsByDate.get(dateKey) || []
   }, [selectedDate, eventsByDate, events])
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading && events.length === 0) {
     return (

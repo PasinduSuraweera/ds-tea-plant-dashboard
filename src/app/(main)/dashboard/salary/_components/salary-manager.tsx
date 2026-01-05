@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Search, Users, TrendingUp, CalendarDays, Download, Printer, Banknote, Leaf, MinusCircle, Gift, ChevronLeft, ChevronRight, Loader2, Edit, Check, X, CheckCircle, Circle } from "lucide-react"
+import { useOrganization } from "@/contexts/organization-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,6 +39,9 @@ interface WorkerSalary {
 }
 
 export function SalaryManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [salaries, setSalaries] = useState<WorkerSalary[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -48,17 +52,21 @@ export function SalaryManager() {
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchSalaryData()
-  }, [selectedMonth])
+    if (orgId) {
+      fetchSalaryData()
+    }
+  }, [selectedMonth, orgId])
 
   async function fetchSalaryData() {
+    if (!orgId) return
     setLoading(true)
     try {
       const monthStart = format(selectedMonth, 'yyyy-MM-dd')
       const monthEnd = format(endOfMonth(selectedMonth), 'yyyy-MM-dd')
 
       // Fetch all daily plucking records for the selected month
-      const { data: records, error } = await supabase
+      let records: any[] = []
+      const { data, error } = await supabase
         .from('daily_plucking')
         .select(`
           id,
@@ -76,20 +84,57 @@ export function SalaryManager() {
             last_name
           )
         `)
+        .eq('organization_id', orgId)
         .gte('date', monthStart)
         .lte('date', monthEnd)
 
       if (error) {
-        if (error.message?.includes('relation "daily_plucking" does not exist')) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('daily_plucking')
+            .select(`
+              id,
+              worker_id,
+              date,
+              kg_plucked,
+              rate_per_kg,
+              wage_earned,
+              is_advance,
+              extra_work_payment,
+              workers!inner (
+                id,
+                employee_id,
+                first_name,
+                last_name
+              )
+            `)
+            .gte('date', monthStart)
+            .lte('date', monthEnd)
+          
+          if (fallbackError) {
+            if (fallbackError.message?.includes('relation "daily_plucking" does not exist')) {
+              toast.error("Daily plucking table not found. Please run the SQL setup.")
+              setSalaries([])
+              return
+            }
+            throw fallbackError
+          }
+          records = fallbackData || []
+        } else if (error.message?.includes('relation "daily_plucking" does not exist')) {
           toast.error("Daily plucking table not found. Please run the SQL setup.")
           setSalaries([])
           return
+        } else {
+          throw error
         }
-        throw error
+      } else {
+        records = data || []
       }
 
       // Fetch bonuses for this month
-      const { data: bonuses, error: bonusError } = await supabase
+      let bonuses: any[] = []
+      const { data: bonusData, error: bonusError } = await supabase
         .from('worker_bonuses')
         .select(`
           *,
@@ -100,7 +145,29 @@ export function SalaryManager() {
             last_name
           )
         `)
+        .eq('organization_id', orgId)
         .eq('month', monthStart)
+
+      if (bonusError) {
+        // Fallback if organization_id column doesn't exist
+        if (bonusError.message?.includes('organization_id') || bonusError.code === '42703') {
+          const { data: fallbackBonuses } = await supabase
+            .from('worker_bonuses')
+            .select(`
+              *,
+              workers!inner (
+                id,
+                employee_id,
+                first_name,
+                last_name
+              )
+            `)
+            .eq('month', monthStart)
+          bonuses = fallbackBonuses || []
+        }
+      } else {
+        bonuses = bonusData || []
+      }
 
       // Create bonus map (ignore error if table doesn't exist)
       const bonusMap = new Map<string, { id: string, amount: number }>()
@@ -114,6 +181,7 @@ export function SalaryManager() {
       const { data: payments, error: paymentError } = await supabase
         .from('salary_payments')
         .select('*')
+        .eq('organization_id', orgId)
         .eq('month', monthStart)
 
       // Create payment map (ignore error if table doesn't exist)
@@ -273,7 +341,8 @@ export function SalaryManager() {
           .insert({
             worker_id: workerId,
             month: monthStart,
-            amount
+            amount,
+            organization_id: orgId
           })
         if (error) throw error
       }
@@ -314,7 +383,8 @@ export function SalaryManager() {
           .insert({
             worker_id: workerId,
             month: monthStart,
-            paid_at: new Date().toISOString()
+            paid_at: new Date().toISOString(),
+            organization_id: orgId
           })
         if (error) throw error
         toast.success("Marked as paid")
@@ -697,6 +767,15 @@ export function SalaryManager() {
     columns,
     getRowId: (row) => row.worker_id,
   })
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading && salaries.length === 0) {
     return (

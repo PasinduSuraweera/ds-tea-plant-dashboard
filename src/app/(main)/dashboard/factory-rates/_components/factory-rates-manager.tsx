@@ -19,6 +19,7 @@ import { formatCurrency } from "@/lib/utils"
 import { format, differenceInDays } from "date-fns"
 import { formatInTimeZone } from "date-fns-tz"
 import { toast } from "sonner"
+import { useOrganization } from "@/contexts/organization-context"
 
 const SL_TIMEZONE = 'Asia/Colombo'
 
@@ -63,6 +64,9 @@ interface RateHistory {
 type SortOption = 'a-z' | 'z-a' | 'highest' | 'lowest' | 'newest' | 'oldest'
 
 export function FactoryRatesManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [factories, setFactories] = useState<FactoryRate[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -82,20 +86,35 @@ export function FactoryRatesManager() {
   })
 
   useEffect(() => {
-    fetchFactories()
-  }, [])
+    if (orgId) {
+      fetchFactories()
+    }
+  }, [orgId])
 
   async function fetchFactories() {
+    if (!orgId) return
     try {
       const { data, error } = await supabase
         .from('factory_rates')
         .select('*')
+        .eq('organization_id', orgId)
         .order('factory_name')
 
-      if (error) throw error
+      if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData } = await supabase
+            .from('factory_rates')
+            .select('*')
+            .order('factory_name')
+          setFactories(fallbackData || [])
+          return
+        }
+        throw error
+      }
       setFactories(data || [])
-    } catch (error) {
-      console.error('Error fetching factories:', error)
+    } catch (error: any) {
+      console.error('Error fetching factories:', error?.message || error)
       toast.error("Failed to load factory rates")
     } finally {
       setLoading(false)
@@ -204,7 +223,8 @@ export function FactoryRatesManager() {
             factory_name: formData.factory_name,
             current_rate: rate,
             effective_date: formData.effective_date,
-            notes: formData.notes || null
+            notes: formData.notes || null,
+            organization_id: orgId
           })
           .select()
           .single()
@@ -426,6 +446,15 @@ export function FactoryRatesManager() {
     columns,
     getRowId: (row) => row.id,
   })
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

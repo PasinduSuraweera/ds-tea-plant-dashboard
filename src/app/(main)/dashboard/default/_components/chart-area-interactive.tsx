@@ -9,6 +9,7 @@ import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useOrganization } from "@/contexts/organization-context";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
@@ -42,6 +43,9 @@ interface ChartData {
 
 export function ChartAreaInteractive() {
   const isMobile = useIsMobile();
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [timeRange, setTimeRange] = React.useState("30d");
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +57,12 @@ export function ChartAreaInteractive() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (orgId) {
+      fetchChartData()
+    }
+    
     async function fetchChartData() {
+      if (!orgId) return
       try {
         setLoading(true);
         const today = new Date();
@@ -76,57 +85,90 @@ export function ChartAreaInteractive() {
         const startDateStr = format(startDate, 'yyyy-MM-dd')
         const todayStr = format(today, 'yyyy-MM-dd')
 
+        // Helper to query with fallback for missing organization_id column
+        async function queryWithFallback<T>(
+          table: string,
+          select: string,
+          dateField: string,
+          startDate: string,
+          endDate: string
+        ): Promise<T[]> {
+          const { data, error } = await supabase
+            .from(table)
+            .select(select)
+            .eq('organization_id', orgId)
+            .gte(dateField, startDate)
+            .lte(dateField, endDate)
+            .order(dateField, { ascending: true })
+          
+          if (error) {
+            if (error.message?.includes('organization_id') || error.code === '42703') {
+              const { data: fallbackData } = await supabase
+                .from(table)
+                .select(select)
+                .gte(dateField, startDate)
+                .lte(dateField, endDate)
+                .order(dateField, { ascending: true })
+              return (fallbackData || []) as T[]
+            }
+            if (error.message?.includes('does not exist')) {
+              return []
+            }
+            throw error
+          }
+          return (data || []) as T[]
+        }
+
         // Get tea sales data (revenue)
-        const { data: salesData, error: salesError } = await supabase
-          .from('tea_sales')
-          .select('date, total_income')
-          .gte('date', startDateStr)
-          .lte('date', todayStr)
-          .order('date', { ascending: true });
+        const salesData = await queryWithFallback<{ date: string; total_income: number }>(
+          'tea_sales',
+          'date, total_income',
+          'date',
+          startDateStr,
+          todayStr
+        )
 
         // Get daily plucking data (expenses - worker payments calculated from kg * rate + extra work)
-        const { data: pluckingData, error: pluckingError } = await supabase
-          .from('daily_plucking')
-          .select('date, kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id')
-          .gte('date', startDateStr)
-          .lte('date', todayStr)
-          .order('date', { ascending: true });
-
-        // Get bonuses for the time range (need to query for all months in range)
-        const { data: bonusesData } = await supabase
-          .from('worker_bonuses')
-          .select('amount')
-          .gte('month', startDateStr)
-          .lte('month', todayStr);
+        const pluckingData = await queryWithFallback<{
+          date: string
+          kg_plucked: number
+          rate_per_kg: number
+          is_advance: boolean
+          extra_work_payment: number
+          wage_earned: number
+          worker_id: string
+        }>(
+          'daily_plucking',
+          'date, kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned, worker_id',
+          'date',
+          startDateStr,
+          todayStr
+        )
 
         // Group data by date
         const dailyData: { [key: string]: { revenue: number; expenses: number } } = {};
         
         // Process sales (revenue)
-        if (salesData) {
-          salesData.forEach((item) => {
-            if (!dailyData[item.date]) {
-              dailyData[item.date] = { revenue: 0, expenses: 0 };
-            }
-            dailyData[item.date].revenue += item.total_income || 0;
-          });
-        }
+        salesData.forEach((item) => {
+          if (!dailyData[item.date]) {
+            dailyData[item.date] = { revenue: 0, expenses: 0 };
+          }
+          dailyData[item.date].revenue += item.total_income || 0;
+        });
 
         // Process plucking (expenses - only count actual work, NOT advances)
         // Advances are prepayments deducted from final salary, not daily expenses
-        if (pluckingData) {
-          pluckingData.forEach((item) => {
-            if (!dailyData[item.date]) {
-              dailyData[item.date] = { revenue: 0, expenses: 0 };
-            }
-            // Skip advances - they're not daily expenses
-            if (!item.is_advance) {
-              const pluckingAmount = (item.kg_plucked || 0) * (item.rate_per_kg || 0);
-              const extraWorkAmount = item.extra_work_payment || 0;
-              dailyData[item.date].expenses += pluckingAmount + extraWorkAmount;
-            }
-          });
-        }
+        pluckingData.forEach((item) => {
+          if (!dailyData[item.date]) {
+            dailyData[item.date] = { revenue: 0, expenses: 0 };
+          }
+          // Skip advances - they're not daily expenses
+          if (!item.is_advance) {
+            const pluckingAmount = (item.kg_plucked || 0) * (item.rate_per_kg || 0);
+            const extraWorkAmount = item.extra_work_payment || 0;
+            dailyData[item.date].expenses += pluckingAmount + extraWorkAmount;
+          }
+        });
 
         // Fill in all dates
         const formattedData: ChartData[] = [];
@@ -152,16 +194,17 @@ export function ChartAreaInteractive() {
         setLoading(false);
       }
     }
-
-    fetchChartData();
-  }, [timeRange]);
+  }, [timeRange, orgId]);
 
   // State for summary totals
   const [summaryTotals, setSummaryTotals] = useState({ revenue: 0, expenses: 0, profit: 0 });
 
   // Fetch summary totals matching stat cards logic (separate from daily chart data)
   useEffect(() => {
+    if (!orgId) return
+    
     async function fetchSummaryTotals() {
+      if (!orgId) return
       try {
         const today = new Date();
         let startDate: Date;
@@ -183,21 +226,61 @@ export function ChartAreaInteractive() {
         const startDateStr = format(startDate, 'yyyy-MM-dd')
         const todayStr = format(today, 'yyyy-MM-dd')
 
-        // Revenue from tea sales
-        const { data: salesData } = await supabase
-          .from('tea_sales')
-          .select('total_income')
-          .gte('date', startDateStr)
-          .lte('date', todayStr)
+        // Helper for fallback queries
+        async function queryWithFallback<T>(
+          table: string,
+          select: string,
+          filters: { field: string; value: any }[] = [],
+          dateRange?: { field: string; from: string; to: string }
+        ): Promise<T[]> {
+          let query = supabase.from(table).select(select).eq('organization_id', orgId)
+          filters.forEach(f => { query = query.eq(f.field, f.value) })
+          if (dateRange) {
+            query = query.gte(dateRange.field, dateRange.from).lte(dateRange.field, dateRange.to)
+          }
+          
+          const { data, error } = await query
+          if (error) {
+            if (error.message?.includes('organization_id') || error.code === '42703') {
+              let fallbackQuery = supabase.from(table).select(select)
+              filters.forEach(f => { fallbackQuery = fallbackQuery.eq(f.field, f.value) })
+              if (dateRange) {
+                fallbackQuery = fallbackQuery.gte(dateRange.field, dateRange.from).lte(dateRange.field, dateRange.to)
+              }
+              const { data: fallbackData } = await fallbackQuery
+              return (fallbackData || []) as T[]
+            }
+            if (error.message?.includes('does not exist')) {
+              return []
+            }
+            throw error
+          }
+          return (data || []) as T[]
+        }
 
-        const revenue = salesData?.reduce((sum, s) => sum + (s.total_income || 0), 0) || 0
+        // Revenue from tea sales
+        const salesData = await queryWithFallback<{ total_income: number }>(
+          'tea_sales',
+          'total_income',
+          [],
+          { field: 'date', from: startDateStr, to: todayStr }
+        )
+
+        const revenue = salesData.reduce((sum, s) => sum + (s.total_income || 0), 0)
 
         // Expenses: (Earnings + Bonuses - Advances) matching stat cards
-        const { data: pluckingData } = await supabase
-          .from('daily_plucking')
-          .select('kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned')
-          .gte('date', startDateStr)
-          .lte('date', todayStr)
+        const pluckingData = await queryWithFallback<{
+          kg_plucked: number
+          rate_per_kg: number
+          is_advance: boolean
+          extra_work_payment: number
+          wage_earned: number
+        }>(
+          'daily_plucking',
+          'kg_plucked, rate_per_kg, is_advance, extra_work_payment, wage_earned',
+          [],
+          { field: 'date', from: startDateStr, to: todayStr }
+        )
 
         // Get bonuses for months that overlap with the date range
         // Extract unique months from the date range
@@ -206,14 +289,29 @@ export function ChartAreaInteractive() {
           monthsInRange.add(format(d, 'yyyy-MM-01'))
         }
         
-        const { data: bonusesData } = await supabase
+        // Query bonuses with fallback
+        let bonusesData: { amount: number }[] = []
+        const { data: bonusData, error: bonusError } = await supabase
           .from('worker_bonuses')
           .select('amount')
+          .eq('organization_id', orgId)
           .in('month', Array.from(monthsInRange))
+        
+        if (bonusError) {
+          if (bonusError.message?.includes('organization_id') || bonusError.code === '42703') {
+            const { data: fallbackBonuses } = await supabase
+              .from('worker_bonuses')
+              .select('amount')
+              .in('month', Array.from(monthsInRange))
+            bonusesData = fallbackBonuses || []
+          }
+        } else {
+          bonusesData = bonusData || []
+        }
 
         let earnings = 0
         let advances = 0
-        pluckingData?.forEach(p => {
+        pluckingData.forEach(p => {
           if (p.is_advance) {
             advances += Math.abs(p.wage_earned || 0)
           } else {
@@ -223,18 +321,18 @@ export function ChartAreaInteractive() {
           }
         })
 
-        const bonusTotal = bonusesData?.reduce((sum, b) => sum + (b.amount || 0), 0) || 0
+        const bonusTotal = bonusesData.reduce((sum, b) => sum + (b.amount || 0), 0)
         const expenses = earnings + bonusTotal - advances
         const profit = revenue - expenses
 
         setSummaryTotals({ revenue, expenses, profit })
-      } catch (error) {
-        console.error('Error fetching summary totals:', error)
+      } catch (error: any) {
+        console.error('Error fetching summary totals:', error?.message || error)
       }
     }
 
     fetchSummaryTotals()
-  }, [timeRange])
+  }, [timeRange, orgId])
 
   const totalRevenue = summaryTotals.revenue;
   const totalExpenses = summaryTotals.expenses;

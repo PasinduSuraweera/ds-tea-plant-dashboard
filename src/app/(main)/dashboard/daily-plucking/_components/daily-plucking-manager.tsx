@@ -19,6 +19,7 @@ import { DataTablePagination } from "@/components/data-table/data-table-paginati
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ColumnDef } from "@tanstack/react-table"
 import { useDataTableInstance } from "@/hooks/use-data-table-instance"
+import { useOrganization } from "@/contexts/organization-context"
 import { supabase } from "@/lib/supabase"
 import { format } from "date-fns"
 import { formatInTimeZone } from "date-fns-tz"
@@ -60,6 +61,9 @@ interface PluckingRecord {
 }
 
 export function DailyPluckingManager() {
+  const { currentOrganization, loading: orgLoading } = useOrganization()
+  const orgId = currentOrganization?.organization_id
+  
   const [records, setRecords] = useState<PluckingRecord[]>([])
   const [workers, setWorkers] = useState<Worker[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,32 +84,50 @@ export function DailyPluckingManager() {
   })
 
   useEffect(() => {
-    fetchWorkers()
-  }, [])
+    if (orgId) {
+      fetchWorkers()
+    }
+  }, [orgId])
 
   useEffect(() => {
-    fetchRecords()
-  }, [selectedDate])
+    if (orgId) {
+      fetchRecords()
+    }
+  }, [selectedDate, orgId])
 
   async function fetchWorkers() {
+    if (!orgId) return
     try {
       const { data, error } = await supabase
         .from('workers')
         .select('id, employee_id, first_name, last_name')
+        .eq('organization_id', orgId)
         .order('first_name')
 
-      if (error) throw error
+      if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData } = await supabase
+            .from('workers')
+            .select('id, employee_id, first_name, last_name')
+            .order('first_name')
+          setWorkers(fallbackData || [])
+          return
+        }
+        throw error
+      }
       setWorkers(data || [])
-    } catch (error) {
-      console.error('Error fetching workers:', error)
+    } catch (error: any) {
+      console.error('Error fetching workers:', error?.message || error)
       toast.error("Failed to load workers")
     }
   }
 
   async function fetchRecords() {
+    if (!orgId) return
     try {
       setLoading(true)
-      const { data, error } = await supabase
+      let query = supabase
         .from('daily_plucking')
         .select(`
           id, worker_id, date, kg_plucked, rate_per_kg, wage_earned, extra_work_payment, notes, is_advance, created_at,
@@ -113,8 +135,33 @@ export function DailyPluckingManager() {
         `)
         .eq('date', selectedDate)
         .order('created_at', { ascending: false })
+      
+      const { data, error } = await query.eq('organization_id', orgId)
 
       if (error) {
+        // Fallback if organization_id column doesn't exist
+        if (error.message?.includes('organization_id') || error.code === '42703') {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('daily_plucking')
+            .select(`
+              id, worker_id, date, kg_plucked, rate_per_kg, wage_earned, extra_work_payment, notes, is_advance, created_at,
+              workers (employee_id, first_name, last_name)
+            `)
+            .eq('date', selectedDate)
+            .order('created_at', { ascending: false })
+          
+          if (fallbackError) {
+            if (fallbackError.message?.includes('relation "daily_plucking" does not exist')) {
+              setRecords([])
+              return
+            }
+            throw fallbackError
+          }
+          
+          // Process fallback data same as normal
+          setRecords(processRecordsData(fallbackData || []))
+          return
+        }
         if (error.message?.includes('relation "daily_plucking" does not exist')) {
           setRecords([])
           return
@@ -122,49 +169,51 @@ export function DailyPluckingManager() {
         throw error
       }
 
-      const processedRecords: PluckingRecord[] = (data || []).map(record => {
-        const worker = record.workers as any
-        const extraWorkPayment = (record as any).extra_work_payment || 0
-        let extraWorkItems: ExtraWork[] = []
-        
-        // Try to parse extra work items from notes or create from payment
-        try {
-          const notesData = record.notes ? JSON.parse(record.notes) : null
-          if (notesData && notesData.extra_work) {
-            extraWorkItems = notesData.extra_work
-          } else if (extraWorkPayment > 0) {
-            extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
-          }
-        } catch {
-          if (extraWorkPayment > 0) {
-            extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
-          }
-        }
-        
-        return {
-          id: record.id,
-          worker_id: record.worker_id,
-          date: record.date,
-          kg_plucked: record.kg_plucked,
-          rate_per_kg: record.rate_per_kg,
-          daily_salary: record.wage_earned,
-          extra_work_payment: extraWorkPayment,
-          extra_work_items: extraWorkItems,
-          is_advance: (record as any).is_advance || false,
-          notes: record.notes,
-          created_at: record.created_at,
-          worker_name: worker ? `${worker.first_name}${worker.last_name ? ' ' + worker.last_name : ''}` : 'Unknown',
-          employee_id: worker?.employee_id || '-'
-        }
-      })
-
-      setRecords(processedRecords)
-    } catch (error) {
-      console.error('Error fetching records:', error)
+      setRecords(processRecordsData(data || []))
+    } catch (error: any) {
+      console.error('Error fetching records:', error?.message || error)
       toast.error("Failed to load records")
     } finally {
       setLoading(false)
     }
+  }
+
+  function processRecordsData(data: any[]): PluckingRecord[] {
+    return data.map(record => {
+      const worker = record.workers as any
+      const extraWorkPayment = (record as any).extra_work_payment || 0
+      let extraWorkItems: ExtraWork[] = []
+      
+      // Try to parse extra work items from notes or create from payment
+      try {
+        const notesData = record.notes ? JSON.parse(record.notes) : null
+        if (notesData && notesData.extra_work) {
+          extraWorkItems = notesData.extra_work
+        } else if (extraWorkPayment > 0) {
+          extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
+        }
+      } catch {
+        if (extraWorkPayment > 0) {
+          extraWorkItems = [{ description: 'Extra work', amount: extraWorkPayment }]
+        }
+      }
+      
+      return {
+        id: record.id,
+        worker_id: record.worker_id,
+        date: record.date,
+        kg_plucked: record.kg_plucked,
+        rate_per_kg: record.rate_per_kg,
+        daily_salary: record.wage_earned,
+        extra_work_payment: extraWorkPayment,
+        extra_work_items: extraWorkItems,
+        is_advance: (record as any).is_advance || false,
+        notes: record.notes,
+        created_at: record.created_at,
+        worker_name: worker ? `${worker.first_name}${worker.last_name ? ' ' + worker.last_name : ''}` : 'Unknown',
+        employee_id: worker?.employee_id || '-'
+      }
+    })
   }
 
   const handleEdit = useCallback((record: PluckingRecord) => {
@@ -263,7 +312,8 @@ export function DailyPluckingManager() {
             total_income: new_daily_salary,
             extra_work_payment: new_extra_work_payment,
             is_advance: new_is_advance,
-            notes: newNotesString
+            notes: newNotesString,
+            organization_id: orgId
           }
 
           const { error } = await supabase
@@ -346,7 +396,8 @@ export function DailyPluckingManager() {
           total_income: plucking_salary,
           extra_work_payment,
           is_advance: false,
-          notes: pluckingNotesString
+          notes: pluckingNotesString,
+          organization_id: orgId
         })
 
         // 2. Advance record
@@ -360,7 +411,8 @@ export function DailyPluckingManager() {
           total_income: advance_amount,
           extra_work_payment: 0,
           is_advance: true,
-          notes: formData.notes ? JSON.stringify({ text: formData.notes }) : null
+          notes: formData.notes ? JSON.stringify({ text: formData.notes }) : null,
+          organization_id: orgId
         })
 
         const { error } = await supabase
@@ -404,7 +456,8 @@ export function DailyPluckingManager() {
           total_income: daily_salary,
           extra_work_payment,
           is_advance: formData.is_advance,
-          notes: notesString
+          notes: notesString,
+          organization_id: orgId
         }
 
         const { error } = await supabase
@@ -801,6 +854,15 @@ export function DailyPluckingManager() {
     columns,
     getRowId: (row) => row.id,
   })
+
+  if (orgLoading || !orgId) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
 
   if (loading && records.length === 0) {
     return (

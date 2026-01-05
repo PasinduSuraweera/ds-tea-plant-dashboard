@@ -13,12 +13,14 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
 import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
 
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
+import { OrgSwitcher } from "./org-switcher";
 
 const data = {
   navSecondary: [
@@ -71,6 +73,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        <SidebarSeparator />
+        <OrgSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={sidebarItems} />
