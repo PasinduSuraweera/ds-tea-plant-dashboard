@@ -41,7 +41,70 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   
   const supabase = createBrowserClient()
   
-  // Get user's organizations
+  // Get user's organizations - only creates if user has NO organizations at all
+  const createDefaultOrganization = useCallback(async (): Promise<UserOrganization | null> => {
+    if (!user) return null
+    
+    try {
+      // IMPORTANT: Double-check that user really has no orgs before creating
+      const { data: existingOrgs } = await supabase
+        .from('organizations')
+        .select('id, name, slug')
+        .eq('owner_id', user.id)
+        .limit(1)
+      
+      if (existingOrgs && existingOrgs.length > 0) {
+        // User already has an org, return it instead of creating
+        return {
+          organization_id: existingOrgs[0].id,
+          organization_name: existingOrgs[0].name,
+          organization_slug: existingOrgs[0].slug,
+          user_role: 'owner'
+        }
+      }
+      
+      // Generate a unique slug
+      const baseSlug = 'my-org'
+      let slug = `${baseSlug}-${Date.now()}`
+      
+      // Insert organization
+      const { data: newOrg, error: insertError } = await supabase
+        .from('organizations')
+        .insert({
+          name: 'My Organization',
+          slug,
+          owner_id: user.id
+        })
+        .select('id, name, slug')
+        .single()
+      
+      if (insertError) {
+        console.error('Error creating organization:', insertError.message)
+        return null
+      }
+      
+      // Add user as owner member
+      await supabase
+        .from('organization_members')
+        .insert({
+          organization_id: newOrg.id,
+          user_id: user.id,
+          role: 'owner',
+          accepted_at: new Date().toISOString()
+        })
+      
+      return {
+        organization_id: newOrg.id,
+        organization_name: newOrg.name,
+        organization_slug: newOrg.slug,
+        user_role: 'owner'
+      }
+    } catch (error: any) {
+      console.error('Error in createDefaultOrganization:', error?.message || error)
+      return null
+    }
+  }, [user, supabase])
+
   const refreshOrganizations = useCallback(async () => {
     if (!user) {
       setOrganizations([])
@@ -50,143 +113,86 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     }
     
     try {
-      const { data, error } = await supabase.rpc('get_user_organizations', {
-        p_user_id: user.id
-      })
+      // First try to get orgs where user is owner
+      const { data: ownedOrgs, error: ownedError } = await supabase
+        .from('organizations')
+        .select('id, name, slug')
+        .eq('owner_id', user.id)
       
-      if (error) {
-        // Check if it's because the function or tables don't exist
-        if (error.message?.includes('does not exist') || error.code === '42883' || error.code === '42P01') {
-          console.warn('Multi-tenant tables not set up yet. Using default organization.')
-          // Create a default org for the current user
-          const defaultOrg: UserOrganization = {
-            organization_id: user.id, // Use user ID as org ID
-            organization_name: 'My Organization',
-            organization_slug: 'default',
+      // Also get orgs where user is a member
+      const { data: memberOrgs, error: memberError } = await supabase
+        .from('organization_members')
+        .select(`
+          role,
+          organization:organizations (id, name, slug)
+        `)
+        .eq('user_id', user.id)
+        .not('accepted_at', 'is', null)
+      
+      // Combine owned and member orgs
+      const allOrgs: UserOrganization[] = []
+      
+      // Add owned orgs
+      if (ownedOrgs && ownedOrgs.length > 0) {
+        ownedOrgs.forEach(org => {
+          allOrgs.push({
+            organization_id: org.id,
+            organization_name: org.name,
+            organization_slug: org.slug,
             user_role: 'owner'
-          }
-          setOrganizations([defaultOrg])
-          setCurrentOrganizationState(defaultOrg)
-          return
-        }
-        
-        console.error('Error fetching organizations:', error?.message || error)
-        // Fallback: query directly
-        const { data: memberData, error: memberError } = await supabase
-          .from('organization_members')
-          .select(`
-            role,
-            organization:organizations (
-              id,
-              name,
-              slug
-            )
-          `)
-          .eq('user_id', user.id)
-          .not('accepted_at', 'is', null)
-        
-        if (memberError) {
-          // Tables don't exist - use default org
-          if (memberError.message?.includes('does not exist') || memberError.code === '42P01') {
-            console.warn('Organization tables not set up yet. Using default organization.')
-            const defaultOrg: UserOrganization = {
-              organization_id: user.id,
-              organization_name: 'My Organization',
-              organization_slug: 'default',
-              user_role: 'owner'
-            }
-            setOrganizations([defaultOrg])
-            setCurrentOrganizationState(defaultOrg)
-            return
-          }
-        }
-        
-        if (!memberError && memberData) {
-          const orgs: UserOrganization[] = memberData
-            .filter((m: any) => m.organization)
-            .map((m: any) => ({
+          })
+        })
+      }
+      
+      // Add member orgs (if not already added as owned)
+      if (memberOrgs && memberOrgs.length > 0) {
+        memberOrgs.forEach((m: any) => {
+          if (m.organization && !allOrgs.find(o => o.organization_id === m.organization.id)) {
+            allOrgs.push({
               organization_id: m.organization.id,
               organization_name: m.organization.name,
               organization_slug: m.organization.slug,
               user_role: m.role as OrganizationRole
-            }))
-          
-          if (orgs.length === 0) {
-            // No orgs found - create default
-            const defaultOrg: UserOrganization = {
-              organization_id: user.id,
-              organization_name: 'My Organization',
-              organization_slug: 'default',
-              user_role: 'owner'
-            }
-            setOrganizations([defaultOrg])
-            setCurrentOrganizationState(defaultOrg)
-            return
+            })
           }
-          
-          setOrganizations(orgs)
-          
-          // Restore or set current org
-          const savedOrgId = localStorage.getItem(ORG_STORAGE_KEY)
-          const savedOrg = orgs.find(o => o.organization_id === savedOrgId)
-          
-          if (savedOrg) {
-            setCurrentOrganizationState(savedOrg)
-          } else if (orgs.length > 0) {
-            setCurrentOrganizationState(orgs[0])
-            localStorage.setItem(ORG_STORAGE_KEY, orgs[0].organization_id)
-          }
+        })
+      }
+      
+      // If no orgs found, create one
+      if (allOrgs.length === 0) {
+        console.log('No organizations found, creating default...')
+        const newOrg = await createDefaultOrganization()
+        if (newOrg) {
+          setOrganizations([newOrg])
+          setCurrentOrganizationState(newOrg)
+          localStorage.setItem(ORG_STORAGE_KEY, newOrg.organization_id)
+          return
         }
+        // If creation failed, the tables might not exist yet
+        console.warn('Could not create organization - tables may not exist')
+        setOrganizations([])
+        setCurrentOrganizationState(null)
         return
       }
       
-      const orgs: UserOrganization[] = (data || []).map((d: any) => ({
-        organization_id: d.organization_id,
-        organization_name: d.organization_name,
-        organization_slug: d.organization_slug,
-        user_role: d.user_role as OrganizationRole
-      }))
-      
-      // If no orgs from RPC, create default
-      if (orgs.length === 0) {
-        const defaultOrg: UserOrganization = {
-          organization_id: user.id,
-          organization_name: 'My Organization',
-          organization_slug: 'default',
-          user_role: 'owner'
-        }
-        setOrganizations([defaultOrg])
-        setCurrentOrganizationState(defaultOrg)
-        return
-      }
-      
-      setOrganizations(orgs)
+      setOrganizations(allOrgs)
       
       // Restore or set current org
       const savedOrgId = localStorage.getItem(ORG_STORAGE_KEY)
-      const savedOrg = orgs.find(o => o.organization_id === savedOrgId)
+      const savedOrg = allOrgs.find(o => o.organization_id === savedOrgId)
       
       if (savedOrg) {
         setCurrentOrganizationState(savedOrg)
-      } else if (orgs.length > 0) {
-        setCurrentOrganizationState(orgs[0])
-        localStorage.setItem(ORG_STORAGE_KEY, orgs[0].organization_id)
+      } else {
+        setCurrentOrganizationState(allOrgs[0])
+        localStorage.setItem(ORG_STORAGE_KEY, allOrgs[0].organization_id)
       }
     } catch (error: any) {
       console.error('Error in refreshOrganizations:', error?.message || error)
-      // Fallback to default org on any error
-      if (user) {
-        const defaultOrg: UserOrganization = {
-          organization_id: user.id,
-          organization_name: 'My Organization',
-          organization_slug: 'default',
-          user_role: 'owner'
-        }
-        setOrganizations([defaultOrg])
-        setCurrentOrganizationState(defaultOrg)
-      }
+      setOrganizations([])
+      setCurrentOrganizationState(null)
     }
-  }, [user, supabase])
+  }, [user, supabase, createDefaultOrganization])
   
   // Set current organization
   const setCurrentOrganization = useCallback((org: UserOrganization) => {

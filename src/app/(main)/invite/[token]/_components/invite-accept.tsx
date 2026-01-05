@@ -6,7 +6,7 @@ import { Building2, Check, X, Loader2, UserPlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase"
+import { createBrowserClient } from "@/lib/supabase"
 import { OrganizationRole } from "@/types/database"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -26,21 +26,34 @@ interface InviteAcceptProps {
 
 export function InviteAccept({ token }: InviteAcceptProps) {
   const router = useRouter()
+  const supabase = createBrowserClient()
   const [loading, setLoading] = useState(true)
   const [accepting, setAccepting] = useState(false)
   const [invite, setInvite] = useState<InviteDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<any>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+
+  // Listen for auth state changes
+  useEffect(() => {
+    // Check initial auth state
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user)
+      setAuthChecked(true)
+    })
+    
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null)
+      setAuthChecked(true)
+    })
+    
+    return () => subscription.unsubscribe()
+  }, [])
 
   useEffect(() => {
     fetchInviteDetails()
-    checkUser()
   }, [token])
-
-  async function checkUser() {
-    const { data } = await supabase.auth.getUser()
-    setUser(data.user)
-  }
 
   async function fetchInviteDetails() {
     try {
@@ -86,46 +99,47 @@ export function InviteAccept({ token }: InviteAcceptProps) {
   }
 
   async function handleAccept() {
-    if (!invite || !user) return
+    if (!invite || !user) {
+      toast.error("Please log in first")
+      return
+    }
+
+    console.log('Accepting invitation...')
+    console.log('User:', user.id, user.email)
+    console.log('Invite:', invite)
+    console.log('Token:', token)
 
     // Check if user email matches invitation
     if (user.email?.toLowerCase() !== invite.email.toLowerCase()) {
-      toast.error("You must be logged in with the email address the invitation was sent to.")
+      toast.error(`You must be logged in with ${invite.email}. Currently logged in as ${user.email}`)
       return
     }
 
     setAccepting(true)
     try {
-      // Add user to organization
-      const { error: memberError } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: invite.organization_id,
-          user_id: user.id,
-          role: invite.role,
-          invited_by: null, // Could store this from invitation
-          accepted_at: new Date().toISOString(),
-        })
+      // Use the SECURITY DEFINER function to accept invitation
+      console.log('Calling accept_invitation RPC with token:', token)
+      const { data, error } = await supabase.rpc('accept_invitation', {
+        p_token: token
+      })
 
-      if (memberError) {
-        if (memberError.message.includes('duplicate')) {
-          toast.error("You are already a member of this organization.")
-        } else {
-          throw memberError
-        }
-        return
+      console.log('RPC response - data:', data, 'error:', error)
+
+      if (error) {
+        console.error('Accept invitation error:', JSON.stringify(error, null, 2))
+        throw error
       }
 
-      // Mark invitation as accepted
-      await supabase
-        .from('invitations')
-        .update({ accepted_at: new Date().toISOString() })
-        .eq('id', invite.id)
+      if (!data || !data.organization_id) {
+        console.error('No data returned from accept_invitation')
+        throw new Error('Failed to accept invitation - no response')
+      }
 
+      console.log('Invitation accepted:', data)
       toast.success("You've joined the organization!")
       
       // Store the new org as current
-      localStorage.setItem('current_organization_id', invite.organization_id)
+      localStorage.setItem('current_organization_id', data.organization_id)
       
       // Redirect to dashboard
       router.push('/dashboard')
@@ -138,7 +152,8 @@ export function InviteAccept({ token }: InviteAcceptProps) {
     }
   }
 
-  if (loading) {
+  // Wait for both invite details AND auth state to be checked
+  if (loading || !authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

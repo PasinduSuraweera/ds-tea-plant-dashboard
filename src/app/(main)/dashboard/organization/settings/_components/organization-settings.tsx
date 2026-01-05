@@ -1,14 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Building2, Users, Mail, Copy, Check, Trash2, Crown, Shield, UserCircle, Eye, Loader2 } from "lucide-react"
-
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { Plus, Edit, Trash2, X, Loader2, Mail, Copy, Check, Crown, Shield, UserCircle, Eye, Building2, CalendarDays, Clock } from "lucide-react"
+import { useOrganization } from "@/contexts/organization-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { DataTable } from "@/components/data-table/data-table"
+import { DataTablePagination } from "@/components/data-table/data-table-pagination"
+import { ColumnDef } from "@tanstack/react-table"
+import { useDataTableInstance } from "@/hooks/use-data-table-instance"
 import {
   Select,
   SelectContent,
@@ -16,31 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Separator } from "@/components/ui/separator"
-import { useOrganization } from "@/contexts/organization-context"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { supabase } from "@/lib/supabase"
 import { OrganizationRole } from "@/types/database"
 import { toast } from "sonner"
+import { format, formatDistanceToNow } from "date-fns"
+import { sendInviteEmail } from "@/server/email-actions"
 
 interface Member {
   id: string
@@ -49,6 +33,7 @@ interface Member {
   full_name: string | null
   role: OrganizationRole
   accepted_at: string | null
+  created_at: string | null
 }
 
 interface Invitation {
@@ -67,16 +52,16 @@ const roleIcons: Record<OrganizationRole, typeof Crown> = {
   viewer: Eye,
 }
 
-const roleColors: Record<OrganizationRole, string> = {
-  owner: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400",
-  admin: "bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400",
-  manager: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400",
-  viewer: "bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400",
+function getRoleBadgeVariant(role: OrganizationRole): "default" | "secondary" | "outline" | "destructive" {
+  switch (role) {
+    case 'owner': return 'default'
+    case 'admin': return 'secondary'
+    default: return 'outline'
+  }
 }
 
 export function OrganizationSettings() {
-  const router = useRouter()
-  const { currentOrganization, loading: orgLoading, isOwner, canManageMembers, user } = useOrganization()
+  const { currentOrganization, loading: orgLoading, isOwner, canManageMembers, user, refreshOrganizations } = useOrganization()
   const orgId = currentOrganization?.organization_id
 
   const [orgName, setOrgName] = useState("")
@@ -85,11 +70,15 @@ export function OrganizationSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   
-  // Invite dialog
-  const [inviteOpen, setInviteOpen] = useState(false)
+  // Modal states
+  const [showOrgForm, setShowOrgForm] = useState(false)
+  const [showInviteForm, setShowInviteForm] = useState(false)
+  
+  // Invite form
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<OrganizationRole>("viewer")
   const [inviting, setInviting] = useState(false)
+  
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
   useEffect(() => {
@@ -104,23 +93,21 @@ export function OrganizationSettings() {
     if (!orgId) return
     
     try {
+      // Direct query to get members
       const { data, error } = await supabase
         .from('organization_members')
-        .select('id, user_id, role, accepted_at')
+        .select('id, user_id, role, accepted_at, created_at')
         .eq('organization_id', orgId)
 
       if (error) {
-        // Table might not exist yet
         if (error.message?.includes('does not exist') || error.code === '42P01') {
-          console.log('organization_members table not yet created - run the migration')
           setMembers([])
           return
         }
         throw error
       }
 
-      // For now, just show user_id since we can't access auth.admin from browser
-      // In a real app, you'd have a profiles table or use a server action
+      // For now, use user_id as email placeholder - emails will show once we fix the RPC
       const memberDetails: Member[] = (data || []).map(member => ({
         id: member.id,
         user_id: member.user_id,
@@ -128,6 +115,7 @@ export function OrganizationSettings() {
         full_name: null,
         role: member.role,
         accepted_at: member.accepted_at,
+        created_at: member.created_at,
       }))
 
       setMembers(memberDetails)
@@ -150,9 +138,7 @@ export function OrganizationSettings() {
         .gt('expires_at', new Date().toISOString())
 
       if (error) {
-        // Table might not exist yet
         if (error.message?.includes('does not exist') || error.code === '42P01') {
-          console.log('invitations table not yet created - run the migration')
           setInvitations([])
           return
         }
@@ -164,62 +150,121 @@ export function OrganizationSettings() {
     }
   }
 
-  async function handleSaveOrgName() {
+  async function handleSaveOrgName(e: React.FormEvent) {
+    e.preventDefault()
     if (!orgId || !orgName.trim()) return
+    
+    if (!isOwner) {
+      toast.error("Only organization owners can update the name")
+      return
+    }
     
     setSaving(true)
     try {
-      const { error } = await supabase
-        .from('organizations')
-        .update({ name: orgName.trim() })
-        .eq('id', orgId)
+      console.log('Updating org via RPC. OrgId:', orgId, 'New name:', orgName.trim())
+      
+      // Use the SECURITY DEFINER function to bypass RLS
+      const { data, error } = await supabase.rpc('update_organization', {
+        p_org_id: orgId,
+        p_name: orgName.trim()
+      })
 
-      if (error) throw error
+      console.log('RPC result:', data, 'Error:', error ? JSON.stringify(error) : null)
+      
+      if (error) {
+        console.error('Error updating org:', JSON.stringify(error, null, 2))
+        throw error
+      }
+      
+      await refreshOrganizations()
       toast.success("Organization name updated")
+      setShowOrgForm(false)
     } catch (error: any) {
-      console.error('Error updating org name:', error)
-      toast.error(error.message || "Failed to update organization name")
+      console.error('Error updating org name:', error?.message || error)
+      toast.error(error?.message || "Failed to update organization name")
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleInvite() {
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault()
     if (!orgId || !inviteEmail.trim()) return
+    
+    if (!isOwner) {
+      toast.error("Only organization owners can send invitations")
+      return
+    }
+
+    const emailToInvite = inviteEmail.toLowerCase().trim()
+
+    // Check if email is already a member
+    const existingMember = members.find(m => m.email.toLowerCase() === emailToInvite)
+    if (existingMember) {
+      toast.error("This person is already a member of your organization")
+      return
+    }
+
+    // Check if there's already a pending invitation for this email
+    const existingInvite = invitations.find(i => i.email.toLowerCase() === emailToInvite)
+    if (existingInvite) {
+      toast.error("An invitation has already been sent to this email")
+      return
+    }
     
     setInviting(true)
     try {
-      // Create invitation token
       const token = crypto.randomUUID()
       const expiresAt = new Date()
-      expiresAt.setDate(expiresAt.getDate() + 7) // 7 day expiry
+      expiresAt.setDate(expiresAt.getDate() + 7)
 
-      const { error } = await supabase
-        .from('invitations')
-        .insert({
-          organization_id: orgId,
-          email: inviteEmail.toLowerCase().trim(),
-          role: inviteRole,
-          token,
-          expires_at: expiresAt.toISOString(),
-          invited_by: user?.id,
-        })
+      console.log('Creating invitation via RPC. OrgId:', orgId)
+      
+      // Use the SECURITY DEFINER function to bypass RLS
+      const { data, error } = await supabase.rpc('create_invitation', {
+        p_org_id: orgId,
+        p_email: emailToInvite,
+        p_role: inviteRole,
+        p_token: token,
+        p_expires_at: expiresAt.toISOString()
+      })
 
-      if (error) throw error
+      if (error) {
+        console.error('Invitation error:', JSON.stringify(error, null, 2))
+        throw error
+      }
 
-      toast.success("Invitation created")
+      console.log('Invitation created with id:', data)
+      
+      // Send email notification
+      const inviteLink = `${window.location.origin}/invite/${token}`
+      const emailResult = await sendInviteEmail(
+        emailToInvite,
+        currentOrganization?.organization_name || 'Organization',
+        inviteLink
+      )
+      
+      if (emailResult.success) {
+        toast.success("Invitation sent!")
+      } else {
+        // Invitation created but email failed - still show success but note email issue
+        toast.success("Invitation created (email notification may not have been sent)")
+        console.warn('Email send failed:', emailResult.error)
+      }
+      
       setInviteEmail("")
-      setInviteOpen(false)
+      setInviteRole("viewer")
+      setShowInviteForm(false)
       fetchInvitations()
     } catch (error: any) {
-      console.error('Error creating invitation:', error)
-      toast.error(error.message || "Failed to create invitation")
+      console.error('Error creating invitation:', error?.message || error)
+      toast.error(error?.message || "Failed to create invitation")
     } finally {
       setInviting(false)
     }
   }
 
-  async function handleCancelInvitation(invitationId: string) {
+  const handleCancelInvitation = useCallback(async (invitationId: string) => {
     try {
       const { error } = await supabase
         .from('invitations')
@@ -230,16 +275,17 @@ export function OrganizationSettings() {
       toast.success("Invitation cancelled")
       fetchInvitations()
     } catch (error: any) {
-      console.error('Error cancelling invitation:', error)
-      toast.error(error.message || "Failed to cancel invitation")
+      toast.error(error?.message || "Failed to cancel invitation")
     }
-  }
+  }, [])
 
-  async function handleRemoveMember(memberId: string, memberUserId: string) {
+  const handleRemoveMember = useCallback(async (memberId: string, memberUserId: string) => {
     if (memberUserId === user?.id) {
       toast.error("You cannot remove yourself")
       return
     }
+    
+    if (!confirm("Remove this member from the organization?")) return
     
     try {
       const { error } = await supabase
@@ -249,14 +295,13 @@ export function OrganizationSettings() {
 
       if (error) throw error
       toast.success("Member removed")
-      fetchMembers()
+      setMembers(prev => prev.filter(m => m.id !== memberId))
     } catch (error: any) {
-      console.error('Error removing member:', error)
-      toast.error(error.message || "Failed to remove member")
+      toast.error(error?.message || "Failed to remove member")
     }
-  }
+  }, [user?.id])
 
-  async function handleUpdateRole(memberId: string, newRole: OrganizationRole) {
+  const handleUpdateRole = useCallback(async (memberId: string, newRole: OrganizationRole) => {
     try {
       const { error } = await supabase
         .from('organization_members')
@@ -265,269 +310,436 @@ export function OrganizationSettings() {
 
       if (error) throw error
       toast.success("Role updated")
-      fetchMembers()
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m))
     } catch (error: any) {
-      console.error('Error updating role:', error)
-      toast.error(error.message || "Failed to update role")
+      toast.error(error?.message || "Failed to update role")
     }
-  }
+  }, [])
 
   function copyInviteLink(token: string) {
     const link = `${window.location.origin}/invite/${token}`
     navigator.clipboard.writeText(link)
     setCopiedToken(token)
-    toast.success("Invite link copied to clipboard")
+    toast.success("Invite link copied")
     setTimeout(() => setCopiedToken(null), 2000)
   }
 
+  // Member columns
+  const memberColumns: ColumnDef<Member>[] = useMemo(() => [
+    {
+      accessorKey: "user_id",
+      header: "ID",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs text-muted-foreground">
+          {row.getValue<string>("user_id").slice(0, 8)}...
+        </span>
+      ),
+    },
+    {
+      id: "member",
+      header: "Name",
+      cell: ({ row }) => {
+        const member = row.original
+        const isCurrentUser = member.user_id === user?.id
+        const RoleIcon = roleIcons[member.role]
+        return (
+          <div className="flex items-center gap-2">
+            <RoleIcon className="h-4 w-4 text-muted-foreground" />
+            <div className="flex flex-col">
+              <span className="font-medium">
+                {member.full_name || '-'}
+                {isCurrentUser && <span className="text-muted-foreground text-xs ml-1">(you)</span>}
+              </span>
+              <span className="text-xs text-muted-foreground">{member.email}</span>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "role",
+      header: "Role",
+      cell: ({ row }) => {
+        const member = row.original
+        const isCurrentUser = member.user_id === user?.id
+        
+        if (canManageMembers && !isCurrentUser && member.role !== 'owner') {
+          return (
+            <Select
+              value={member.role}
+              onValueChange={(v) => handleUpdateRole(member.id, v as OrganizationRole)}
+            >
+              <SelectTrigger className="h-7 w-24 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">Viewer</SelectItem>
+                <SelectItem value="manager">Manager</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          )
+        }
+        
+        return (
+          <Badge variant={getRoleBadgeVariant(member.role)} className="text-xs capitalize">
+            {member.role}
+          </Badge>
+        )
+      },
+    },
+    {
+      accessorKey: "accepted_at",
+      header: "Joined",
+      cell: ({ row }) => {
+        const acceptedAt = row.original.accepted_at
+        if (!acceptedAt) return <span className="text-muted-foreground text-xs">-</span>
+        
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-xs text-muted-foreground cursor-help flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" />
+                  {formatDistanceToNow(new Date(acceptedAt), { addSuffix: true })}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{format(new Date(acceptedAt), 'MMMM dd, yyyy')}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const member = row.original
+        const isCurrentUser = member.user_id === user?.id
+        
+        if (!canManageMembers || isCurrentUser || member.role === 'owner') return null
+        
+        return (
+          <div className="flex gap-1 justify-end">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleRemoveMember(member.id, member.user_id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Remove member</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )
+      },
+    },
+  ], [user?.id, canManageMembers, handleRemoveMember, handleUpdateRole])
+
+  // Invitation columns
+  const invitationColumns: ColumnDef<Invitation>[] = useMemo(() => [
+    {
+      accessorKey: "email",
+      header: "Email",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Mail className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm">{row.getValue("email")}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "role",
+      header: "Role",
+      cell: ({ row }) => (
+        <Badge variant="outline" className="text-xs capitalize">
+          {row.getValue("role")}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Sent",
+      cell: ({ row }) => {
+        const createdAt = row.getValue("created_at") as string
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-sm text-muted-foreground cursor-help flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{format(new Date(createdAt), 'MMMM dd, yyyy')}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+    },
+    {
+      accessorKey: "expires_at",
+      header: "Expires",
+      cell: ({ row }) => {
+        const expiresAt = row.getValue("expires_at") as string
+        return (
+          <span className="text-sm text-muted-foreground">
+            {format(new Date(expiresAt), 'MMM d')}
+          </span>
+        )
+      },
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const invite = row.original
+        return (
+          <div className="flex gap-1 justify-end">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => copyInviteLink(invite.token)}
+                  >
+                    {copiedToken === invite.token ? (
+                      <Check className="h-3.5 w-3.5 text-green-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy invite link</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleCancelInvitation(invite.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Cancel invitation</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )
+      },
+    },
+  ], [copiedToken, handleCancelInvitation])
+
+  const membersTable = useDataTableInstance({
+    data: members,
+    columns: memberColumns,
+    getRowId: (row) => row.id,
+  })
+
+  const invitationsTable = useDataTableInstance({
+    data: invitations,
+    columns: invitationColumns,
+    getRowId: (row) => row.id,
+  })
+
   if (orgLoading || !orgId) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading organization...</span>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading settings...</span>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto py-6 px-4 max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Organization Settings</h1>
-        <p className="text-muted-foreground">Manage your organization and team members</p>
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg sm:text-xl font-semibold">Organization Settings</h2>
+          {isOwner && (
+            <Button onClick={() => setShowOrgForm(true)} variant="outline" size="sm">
+              <Edit className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Edit Organization</span>
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Organization Details */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building2 className="h-5 w-5" />
-            Organization Details
-          </CardTitle>
-          <CardDescription>
-            Basic information about your organization
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="orgName">Organization Name</Label>
-            <div className="flex gap-2">
-              <Input
-                id="orgName"
-                value={orgName}
-                onChange={(e) => setOrgName(e.target.value)}
-                disabled={!isOwner}
-              />
-              {isOwner && (
-                <Button onClick={handleSaveOrgName} disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-                </Button>
-              )}
-            </div>
+      {/* Organization Info Card */}
+      <Card className="p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-10 h-10 rounded-md bg-muted">
+            <Building2 className="h-5 w-5 text-muted-foreground" />
           </div>
-        </CardContent>
+          <div>
+            <p className="font-medium">{currentOrganization?.organization_name}</p>
+            <p className="text-xs text-muted-foreground font-mono">/{currentOrganization?.organization_slug}</p>
+          </div>
+        </div>
       </Card>
 
-      {/* Team Members */}
+      {/* Team Members Section */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Team Members
-              </CardTitle>
-              <CardDescription>
-                Manage who has access to this organization
+              <CardTitle className="text-base">Team Members</CardTitle>
+              <CardDescription className="text-xs">
+                {members.length} {members.length === 1 ? 'member' : 'members'}
               </CardDescription>
             </div>
             {canManageMembers && (
-              <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Mail className="h-4 w-4 mr-2" />
-                    Invite Member
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Invite Team Member</DialogTitle>
-                    <DialogDescription>
-                      Send an invitation to join your organization
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email Address</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        placeholder="colleague@example.com"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="role">Role</Label>
-                      <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as OrganizationRole)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="viewer">Viewer - Can view data</SelectItem>
-                          <SelectItem value="manager">Manager - Can edit data</SelectItem>
-                          <SelectItem value="admin">Admin - Can manage members</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setInviteOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleInvite} disabled={inviting || !inviteEmail.trim()}>
-                      {inviting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Send Invitation
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <Button onClick={() => setShowInviteForm(true)} size="sm">
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Invite</span>
+              </Button>
             )}
           </div>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Current Members */}
-              <div className="space-y-2">
-                {members.map((member) => {
-                  const RoleIcon = roleIcons[member.role]
-                  const isCurrentUser = member.user_id === user?.id
-                  
-                  return (
-                    <div
-                      key={member.id}
-                      className="flex items-center justify-between p-3 rounded-lg border"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
-                          <RoleIcon className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="font-medium">
-                            {member.full_name || member.email}
-                            {isCurrentUser && <span className="text-muted-foreground ml-1">(you)</span>}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{member.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {canManageMembers && !isCurrentUser && member.role !== 'owner' ? (
-                          <Select
-                            value={member.role}
-                            onValueChange={(v) => handleUpdateRole(member.id, v as OrganizationRole)}
-                          >
-                            <SelectTrigger className="w-32">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="viewer">Viewer</SelectItem>
-                              <SelectItem value="manager">Manager</SelectItem>
-                              <SelectItem value="admin">Admin</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Badge className={roleColors[member.role]} variant="secondary">
-                            {member.role}
-                          </Badge>
-                        )}
-                        {canManageMembers && !isCurrentUser && member.role !== 'owner' && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon" className="text-destructive">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Remove Member</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to remove {member.full_name || member.email} from this organization?
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleRemoveMember(member.id, member.user_id)}
-                                  className="bg-destructive text-destructive-foreground"
-                                >
-                                  Remove
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Pending Invitations */}
-              {invitations.length > 0 && (
-                <>
-                  <Separator />
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">Pending Invitations</h4>
-                    <div className="space-y-2">
-                      {invitations.map((invite) => (
-                        <div
-                          key={invite.id}
-                          className="flex items-center justify-between p-3 rounded-lg border border-dashed"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Mail className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">{invite.email}</p>
-                              <p className="text-sm text-muted-foreground">
-                                Expires {new Date(invite.expires_at).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{invite.role}</Badge>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => copyInviteLink(invite.token)}
-                            >
-                              {copiedToken === invite.token ? (
-                                <Check className="h-4 w-4 text-green-600" />
-                              ) : (
-                                <Copy className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => handleCancelInvitation(invite.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+        <CardContent className="space-y-4">
+          <div className="max-h-[400px] overflow-auto rounded-md border">
+            <DataTable table={membersTable} columns={memberColumns} />
+          </div>
+          <DataTablePagination table={membersTable} />
         </CardContent>
       </Card>
+
+      {/* Pending Invitations */}
+      {invitations.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Pending Invitations</CardTitle>
+            <CardDescription className="text-xs">
+              {invitations.length} pending {invitations.length === 1 ? 'invitation' : 'invitations'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="max-h-[300px] overflow-auto rounded-md border">
+              <DataTable table={invitationsTable} columns={invitationColumns} />
+            </div>
+            <DataTablePagination table={invitationsTable} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit Organization Name Modal */}
+      {showOrgForm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Edit Organization</h3>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowOrgForm(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <form onSubmit={handleSaveOrgName} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="orgName">Organization Name</Label>
+                  <Input
+                    id="orgName"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    placeholder="My Organization"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setShowOrgForm(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1" disabled={saving || !orgName.trim()}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Save
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Invite Member Modal */}
+      {showInviteForm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Invite Member</h3>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowInviteForm(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <form onSubmit={handleInvite} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="colleague@example.com"
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role</Label>
+                  <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as OrganizationRole)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {inviteRole === 'viewer' && 'Can view data only'}
+                    {inviteRole === 'manager' && 'Can view and edit data'}
+                    {inviteRole === 'admin' && 'Can manage members and data'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setShowInviteForm(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" className="flex-1" disabled={inviting || !inviteEmail.trim()}>
+                    {inviting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Send Invite
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

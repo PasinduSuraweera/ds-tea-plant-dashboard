@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -24,6 +24,8 @@ const FormSchema = z.object({
 export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect');
   const supabase = createBrowserSupabaseClient();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -55,7 +57,8 @@ export function LoginForm() {
         description: "You have been logged in successfully.",
       });
       
-      router.push("/dashboard");
+      // Redirect to specified URL or dashboard
+      router.push(redirectTo || "/dashboard");
       router.refresh();
     } catch {
       toast.error("An unexpected error occurred", {

@@ -14,18 +14,30 @@ DROP POLICY IF EXISTS "Members can view org members" ON organization_members;
 DROP POLICY IF EXISTS "Admins can insert members" ON organization_members;
 DROP POLICY IF EXISTS "Admins can update members" ON organization_members;
 DROP POLICY IF EXISTS "Admins can delete members" ON organization_members;
+DROP POLICY IF EXISTS "org_members_select_policy" ON organization_members;
+DROP POLICY IF EXISTS "org_members_insert_policy" ON organization_members;
+DROP POLICY IF EXISTS "org_members_update_policy" ON organization_members;
+DROP POLICY IF EXISTS "org_members_delete_policy" ON organization_members;
 
 -- Organizations policies (also reference organization_members)
 DROP POLICY IF EXISTS "Users can view their organizations" ON organizations;
 DROP POLICY IF EXISTS "Owners can update their organizations" ON organizations;
 DROP POLICY IF EXISTS "Users can create organizations" ON organizations;
 DROP POLICY IF EXISTS "Owners can delete their organizations" ON organizations;
+DROP POLICY IF EXISTS "org_select_policy" ON organizations;
+DROP POLICY IF EXISTS "org_insert_policy" ON organizations;
+DROP POLICY IF EXISTS "org_update_policy" ON organizations;
+DROP POLICY IF EXISTS "org_delete_policy" ON organizations;
 
 -- Invitations policies
 DROP POLICY IF EXISTS "Members can view invitations" ON invitations;
 DROP POLICY IF EXISTS "Admins can create invitations" ON invitations;
 DROP POLICY IF EXISTS "Anyone can view their invitation by token" ON invitations;
 DROP POLICY IF EXISTS "Admins can delete invitations" ON invitations;
+DROP POLICY IF EXISTS "invitations_select_policy" ON invitations;
+DROP POLICY IF EXISTS "invitations_insert_policy" ON invitations;
+DROP POLICY IF EXISTS "invitations_update_policy" ON invitations;
+DROP POLICY IF EXISTS "invitations_delete_policy" ON invitations;
 
 -- 2. CREATE SECURITY DEFINER HELPER FUNCTIONS
 -- These bypass RLS to avoid recursion
