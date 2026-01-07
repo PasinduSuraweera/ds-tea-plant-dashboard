@@ -135,18 +135,16 @@ export function OrgSwitcher() {
               <Settings className="size-4" />
               Organization Settings
             </DropdownMenuItem>
-            {isOwner && (
-              <DropdownMenuItem
-                onClick={() => {
-                  setOpen(false)
-                  router.push('/dashboard/organization/new')
-                }}
-                className="gap-2"
-              >
-                <Plus className="size-4" />
-                Create Organization
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem
+              onClick={() => {
+                setOpen(false)
+                router.push('/dashboard/organization/new')
+              }}
+              className="gap-2"
+            >
+              <Plus className="size-4" />
+              Create Organization
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

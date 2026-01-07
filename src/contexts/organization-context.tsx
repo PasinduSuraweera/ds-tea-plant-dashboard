@@ -21,6 +21,7 @@ interface OrganizationContextType {
   setCurrentOrganization: (org: UserOrganization) => void
   refreshOrganizations: () => Promise<void>
   createOrganization: (name: string) => Promise<string | null>
+  deleteOrganization: (organizationId: string) => Promise<boolean>
   
   // Permission helpers
   canEdit: boolean // owner, admin, manager
@@ -215,13 +216,75 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         return null
       }
       
-      // Refresh organizations list
-      await refreshOrganizations()
+      const newOrgId = data as string
       
-      return data as string
+      // Fetch the updated organizations list
+      const { data: memberships } = await supabase
+        .from('organization_members')
+        .select(`
+          organization_id,
+          role,
+          organization:organizations (
+            id,
+            name,
+            slug
+          )
+        `)
+        .eq('user_id', user.id)
+      
+      if (memberships) {
+        const allOrgs: UserOrganization[] = []
+        memberships.forEach((m: any) => {
+          if (m.organization) {
+            allOrgs.push({
+              organization_id: m.organization.id,
+              organization_name: m.organization.name,
+              organization_slug: m.organization.slug,
+              user_role: m.role as OrganizationRole
+            })
+          }
+        })
+        
+        setOrganizations(allOrgs)
+        
+        // Find and auto-select the newly created organization
+        const newOrg = allOrgs.find(o => o.organization_id === newOrgId)
+        if (newOrg) {
+          setCurrentOrganization(newOrg)
+        }
+      }
+      
+      return newOrgId
     } catch (error) {
       console.error('Error in createOrganization:', error)
       return null
+    }
+  }, [user, supabase, setCurrentOrganization])
+  
+  // Delete organization (owner only)
+  const deleteOrganization = useCallback(async (organizationId: string): Promise<boolean> => {
+    if (!user) return false
+    
+    try {
+      // Delete the organization (cascade will handle members and invitations via DB constraints)
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', organizationId)
+        .eq('owner_id', user.id) // Ensure only owner can delete
+      
+      if (error) {
+        console.error('Error deleting organization:', error)
+        return false
+      }
+      
+      // Refresh organizations list
+      await refreshOrganizations()
+      
+      return true
+    } catch (error) {
+      console.error('Error in deleteOrganization:', error)
+      return false
     }
   }, [user, supabase, refreshOrganizations])
   
@@ -271,6 +334,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         setCurrentOrganization,
         refreshOrganizations,
         createOrganization,
+        deleteOrganization,
         canEdit,
         canManageMembers,
         canDelete,

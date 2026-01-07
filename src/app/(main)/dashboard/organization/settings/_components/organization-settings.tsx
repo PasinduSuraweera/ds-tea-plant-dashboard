@@ -19,12 +19,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { supabase } from "@/lib/supabase"
 import { OrganizationRole } from "@/types/database"
 import { toast } from "sonner"
 import { format, formatDistanceToNow } from "date-fns"
 import { sendInviteEmail } from "@/server/email-actions"
+import { useRouter } from "next/navigation"
 
 interface Member {
   id: string
@@ -61,8 +73,9 @@ function getRoleBadgeVariant(role: OrganizationRole): "default" | "secondary" | 
 }
 
 export function OrganizationSettings() {
-  const { currentOrganization, loading: orgLoading, isOwner, canManageMembers, user, refreshOrganizations } = useOrganization()
+  const { currentOrganization, loading: orgLoading, isOwner, canManageMembers, user, refreshOrganizations, deleteOrganization } = useOrganization()
   const orgId = currentOrganization?.organization_id
+  const router = useRouter()
 
   const [orgName, setOrgName] = useState("")
   const [members, setMembers] = useState<Member[]>([])
@@ -184,6 +197,28 @@ export function OrganizationSettings() {
       toast.error(error?.message || "Failed to update organization name")
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleDeleteOrganization() {
+    if (!orgId || !isOwner) {
+      toast.error("Only organization owners can delete the organization")
+      return
+    }
+
+    try {
+      const success = await deleteOrganization(orgId)
+      
+      if (success) {
+        toast.success("Organization deleted successfully")
+        // Redirect to dashboard after deletion
+        router.push('/dashboard')
+      } else {
+        toast.error("Failed to delete organization")
+      }
+    } catch (error: any) {
+      console.error('Error deleting organization:', error?.message || error)
+      toast.error(error?.message || "Failed to delete organization")
     }
   }
 
@@ -648,33 +683,79 @@ export function OrganizationSettings() {
         </Card>
       )}
 
+      {/* Danger Zone - Delete Organization (Owner Only) */}
+      {isOwner && (
+        <Card className="border-destructive">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-destructive">Danger Zone</CardTitle>
+            <CardDescription className="text-xs">
+              Permanently delete this organization and all associated data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Organization
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the organization
+                    <strong> {currentOrganization?.organization_name}</strong> and remove all members' access.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteOrganization}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete Organization
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Edit Organization Name Modal */}
       {showOrgForm && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <Card className="w-full max-w-sm">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Edit Organization</h3>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Edit Organization</CardTitle>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowOrgForm(false)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <form onSubmit={handleSaveOrgName} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="orgName">Organization Name</Label>
+              <CardDescription className="text-xs">
+                Update your organization name
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSaveOrgName} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="orgName" className="text-xs">Organization Name *</Label>
                   <Input
                     id="orgName"
                     value={orgName}
                     onChange={(e) => setOrgName(e.target.value)}
                     placeholder="My Organization"
+                    className="h-8"
                     autoFocus
                   />
                 </div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" className="flex-1" onClick={() => setShowOrgForm(false)}>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowOrgForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1" disabled={saving || !orgName.trim()}>
+                  <Button type="submit" size="sm" disabled={saving || !orgName.trim()}>
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Save
                   </Button>
@@ -689,29 +770,35 @@ export function OrganizationSettings() {
       {showInviteForm && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <Card className="w-full max-w-sm">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Invite Member</h3>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Invite Member</CardTitle>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowInviteForm(false)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <form onSubmit={handleInvite} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
+              <CardDescription className="text-xs">
+                Send an invitation to join your organization
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleInvite} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs">Email Address *</Label>
                   <Input
                     id="email"
                     type="email"
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     placeholder="colleague@example.com"
+                    className="h-8"
                     autoFocus
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="role" className="text-xs">Role *</Label>
                   <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as OrganizationRole)}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-8">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -726,11 +813,11 @@ export function OrganizationSettings() {
                     {inviteRole === 'admin' && 'Can manage members and data'}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" className="flex-1" onClick={() => setShowInviteForm(false)}>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowInviteForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1" disabled={inviting || !inviteEmail.trim()}>
+                  <Button type="submit" size="sm" disabled={inviting || !inviteEmail.trim()}>
                     {inviting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Send Invite
                   </Button>
